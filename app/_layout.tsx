@@ -7,9 +7,9 @@ import "./global.css";
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView className="flex-1 bg-black">
+      <SafeAreaView className="flex-1">
         <StatusBar barStyle="light-content" />
-        <View className="flex-1 bg-black">
+        <View className="flex-1">
           <Stack
             screenOptions={{
               headerShown: false,

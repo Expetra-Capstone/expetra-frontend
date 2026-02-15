@@ -18,14 +18,14 @@ function TabIcon({ focused, icon, title }: TabIconProps) {
           {
             width: 24,
             height: 24,
-            tintColor: focused ? "#FFFFFF" : "#6B7280",
+            tintColor: focused ? "#1152D4" : "#6B7280",
           } as ImageStyle
         }
         resizeMode="contain"
       />
       <Text
         className={`text-xs mt-1 ${
-          focused ? "text-white font-semibold" : "text-gray-500"
+          focused ? "text-accent font-semibold" : "text-gray-500"
         }`}
       >
         {title}
@@ -42,7 +42,7 @@ export default function TabsLayout() {
         screenOptions={{
           tabBarShowLabel: false,
           tabBarStyle: {
-            backgroundColor: "#000000",
+            backgroundColor: "#ffffff",
             borderTopWidth: 0,
             height: Platform.OS === "ios" ? 60 : 65,
             paddingBottom: Platform.OS === "ios" ? 20 : 10,
