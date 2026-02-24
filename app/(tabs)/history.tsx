@@ -92,55 +92,48 @@ const History = () => {
         stickyHeaderIndices={[0]}
       >
         {/* Header */}
-        <View className="px-5 pt-4 pb-3 bg-white">
-          <Text className="text-3xl font-bold text-black">
-            Transaction History
-          </Text>
-          <Text className="mt-1 text-sm text-gray-500">
-            View all your transactions
-          </Text>
-        </View>
+        <View className="pt-4 pb-3 bg-white">
+          {/* Dropdown Filters Row */}
+          <View className="px-5 mb-4">
+            <View className="flex-row">
+              {/* Bank Dropdown */}
+              <TouchableOpacity
+                onPress={() => setIsBankDropdownVisible(true)}
+                className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
+              >
+                <View className="flex-row items-center flex-1">
+                  <Ionicons name="business-outline" size={18} color="#666" />
+                  <Text
+                    className="flex-1 ml-2 text-sm font-medium text-gray-700"
+                    numberOfLines={1}
+                  >
+                    {getCurrentBankLabel()}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-down" size={18} color="#666" />
+              </TouchableOpacity>
 
-        {/* Dropdown Filters Row */}
-        <View className="px-5 mb-4">
-          <View className="flex-row">
-            {/* Bank Dropdown */}
-            <TouchableOpacity
-              onPress={() => setIsBankDropdownVisible(true)}
-              className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
-            >
-              <View className="flex-row items-center flex-1">
-                <Ionicons name="business-outline" size={18} color="#666" />
-                <Text
-                  className="flex-1 ml-2 text-sm font-medium text-gray-700"
-                  numberOfLines={1}
-                >
-                  {getCurrentBankLabel()}
-                </Text>
-              </View>
-              <Ionicons name="chevron-down" size={18} color="#666" />
-            </TouchableOpacity>
-
-            {/* Status Dropdown */}
-            <TouchableOpacity
-              onPress={() => setIsStatusDropdownVisible(true)}
-              className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
-            >
-              <View className="flex-row items-center flex-1">
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={18}
-                  color="#666"
-                />
-                <Text
-                  className="flex-1 ml-2 text-sm font-medium text-gray-700"
-                  numberOfLines={1}
-                >
-                  {getCurrentStatusLabel()}
-                </Text>
-              </View>
-              <Ionicons name="chevron-down" size={18} color="#666" />
-            </TouchableOpacity>
+              {/* Status Dropdown */}
+              <TouchableOpacity
+                onPress={() => setIsStatusDropdownVisible(true)}
+                className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
+              >
+                <View className="flex-row items-center flex-1">
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color="#666"
+                  />
+                  <Text
+                    className="flex-1 ml-2 text-sm font-medium text-gray-700"
+                    numberOfLines={1}
+                  >
+                    {getCurrentStatusLabel()}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-down" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
