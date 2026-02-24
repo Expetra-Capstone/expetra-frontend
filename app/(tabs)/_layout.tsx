@@ -1,35 +1,51 @@
 import Navbar from "@/components/Navbar";
-import { icons } from "@/constants/icons";
 import { Tabs } from "expo-router";
-import { Image, ImageStyle, Platform, Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
+
+import {
+  Analytics01Icon,
+  Clock04Icon,
+  Home01Icon,
+  QrCode01Icon,
+  UserIcon,
+} from "hugeicons-react-native";
 
 interface TabIconProps {
   focused: boolean;
-  icon: any;
   title: string;
+  IconComponent: any;
 }
 
-function TabIcon({ focused, icon, title }: TabIconProps) {
+function TabIcon({ focused, title, IconComponent }: TabIconProps) {
   return (
-    <View className="items-center justify-center pt-5">
-      <Image
-        source={icon}
-        style={
-          {
-            width: 24,
-            height: 24,
-            tintColor: focused ? "#1152D4" : "#6B7280",
-          } as ImageStyle
-        }
-        resizeMode="contain"
+    <View className="items-center justify-center w-16 mt-7">
+      <IconComponent
+        size={22}
+        color={focused ? "#1152D4" : "#9CA3AF"}
+        strokeWidth={focused ? 2.5 : 2.0}
+        absoluteStrokeWidth
       />
       <Text
-        className={`text-xs mt-1 ${
-          focused ? "text-accent font-semibold" : "text-gray-500"
+        numberOfLines={1}
+        className={`text-[10px] mt-1 text-center w-full ${
+          focused ? "text-[#1152D4]" : "text-gray-400"
         }`}
       >
         {title}
       </Text>
+    </View>
+  );
+}
+
+function CenterTabIcon() {
+  return (
+    <View
+      className="items-center justify-center w-16"
+      style={{ marginTop: 10 }}
+    >
+      <View className="w-20 h-20 rounded-full bg-[#1152D4] items-center justify-center">
+        <QrCode01Icon size={33} color="#ffffff" variant="stroke" />
+      </View>
     </View>
   );
 }
@@ -44,32 +60,25 @@ export default function TabsLayout() {
           tabBarStyle: {
             backgroundColor: "#ffffff",
             borderTopWidth: 0,
-            height: Platform.OS === "ios" ? 60 : 65,
-            paddingBottom: Platform.OS === "ios" ? 20 : 10,
-            paddingTop: 8,
+            height: Platform.OS === "ios" ? 72 : 72,
+            paddingBottom: 0,
+            paddingTop: 0,
             position: "absolute",
             elevation: 0,
             shadowOpacity: 0,
           },
           headerShown: false,
-          tabBarActiveTintColor: "#FFFFFF",
-          tabBarInactiveTintColor: "#6B7280",
         }}
       >
         <Tabs.Screen
           name="index"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon focused={focused} icon={icons.home} title="Home" />
-            ),
-          }}
-        />
-
-        <Tabs.Screen
-          name="camera"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon focused={focused} icon={icons.add} title="Add" />
+              <TabIcon
+                focused={focused}
+                title="Home"
+                IconComponent={Home01Icon}
+              />
             ),
           }}
         />
@@ -78,7 +87,33 @@ export default function TabsLayout() {
           name="history"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon focused={focused} icon={icons.history} title="History" />
+              <TabIcon
+                focused={focused}
+                title="History"
+                IconComponent={Clock04Icon}
+              />
+            ),
+          }}
+        />
+
+        {/* Center elevated QR/Scan button */}
+        <Tabs.Screen
+          name="camera"
+          options={{
+            tabBarLabel: () => null,
+            tabBarIcon: () => <CenterTabIcon />,
+          }}
+        />
+
+        <Tabs.Screen
+          name="analytics"
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <TabIcon
+                focused={focused}
+                title="Analytics"
+                IconComponent={Analytics01Icon}
+              />
             ),
           }}
         />
@@ -87,7 +122,11 @@ export default function TabsLayout() {
           name="profile"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon focused={focused} icon={icons.account} title="Profile" />
+              <TabIcon
+                focused={focused}
+                title="Profile"
+                IconComponent={UserIcon}
+              />
             ),
           }}
         />
