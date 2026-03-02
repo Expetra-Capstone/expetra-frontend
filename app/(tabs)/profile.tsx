@@ -1,6 +1,11 @@
+import { ONBOARDING_STORAGE_KEY } from "@/constants/onboarding";
+import { useAuth } from "@/context/AuthContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 import { EditUser02Icon } from "hugeicons-react-native";
 import React from "react";
 import {
+  Alert,
   Image,
   ScrollView,
   Switch,
@@ -80,6 +85,29 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
 const Profile: React.FC = () => {
   const [biometric, setBiometric] = React.useState(true);
   const [twoFactor, setTwoFactor] = React.useState(false);
+
+  const { logout } = useAuth();
+
+  const router = useRouter();
+
+  const handleOnBoarding = async () => {
+    await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+    router.push("/(onboarding)");
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          await logout();
+          router.replace("/(auth)");
+        },
+      },
+    ]);
+  };
 
   return (
     <ScrollView
@@ -236,9 +264,21 @@ const Profile: React.FC = () => {
       </Section>
 
       {/* ── Logout ── */}
-      <TouchableOpacity className="items-center py-4 mx-4 mb-28">
+      <TouchableOpacity
+        className="items-center py-4 mx-4 mb-28"
+        onPress={handleLogout}
+      >
         <Text className="text-sm font-semibold text-red-500">
           ⬡ Logout Account
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        className="items-center py-4 mx-4 mb-28"
+        onPress={handleOnBoarding}
+      >
+        <Text className="text-sm font-semibold text-red-500">
+          see Onboarding
         </Text>
       </TouchableOpacity>
     </ScrollView>

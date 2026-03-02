@@ -1,4 +1,5 @@
 import { ONBOARDING_STORAGE_KEY } from "@/constants/onboarding";
+import { AuthProvider } from "@/context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
@@ -26,22 +27,24 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView className="flex-1">
         <StatusBar barStyle="dark-content" />
-        <View className="flex-1">
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "transparent" },
-            }}
-          >
-            {!hasOnboarded && (
-              <Stack.Screen
-                name="(onboarding)"
-                options={{ gestureEnabled: false }}
-              />
-            )}
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          </Stack>
-        </View>
+        <AuthProvider>
+          <View className="flex-1">
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: "transparent" },
+              }}
+            >
+              {!hasOnboarded && (
+                <Stack.Screen
+                  name="(onboarding)"
+                  options={{ gestureEnabled: false }}
+                />
+              )}
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            </Stack>
+          </View>
+        </AuthProvider>
       </SafeAreaView>
     </GestureHandlerRootView>
   );
