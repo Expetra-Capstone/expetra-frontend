@@ -1,17 +1,15 @@
 // app/(tabs)/add.tsx
 
-import { LoadingOverlay } from "@/components/LoadingOverlay";
-import { OpenRouterService } from "@/services/openRouterService";
+import { LoadingOverlay } from "@/components/screenshot/LoadingOverlay";
+import { ReceiptReviewModal } from "@/components/screenshot/ReceiptReviewModal";
+import { GeminiService, RateLimitError } from "@/services/gemeniService";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import React, { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   Image,
-  Modal,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,17 +17,14 @@ import {
 } from "react-native";
 import { ReceiptData } from "../../types/expense.types";
 
-// ─── Mock API ────────────────────────────────────────────────────────────────
-// Replace this with your real API call when ready
+// ─── Mock API ─────────────────────────────────────────────────────────────────
 async function saveExpenseToApi(
   data: ReceiptData,
   imageUri: string,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     setTimeout(() => {
       console.log("[Mock API] POST /expenses", { data, imageUri });
-      // Simulate occasional failure for testing:
-      // reject(new Error("Network error"));
       resolve();
     }, 1200);
   });
@@ -47,9 +42,9 @@ export default function Camera() {
   const [showReview, setShowReview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const openRouterService = OpenRouterService.getInstance();
+  const geminiService = GeminiService.getInstance();
 
-  // ─── Permission Gates ───────────────────────────────────────────────────────
+  // ─── Permission gates ───────────────────────────────────────────────────────
   if (!permission) return <View />;
 
   if (!permission.granted) {
@@ -90,22 +85,29 @@ export default function Camera() {
   async function processImage(base64: string, uri: string) {
     setIsProcessing(true);
     try {
-      const receiptData = await openRouterService.extractReceiptData(base64);
+      const receiptData = await geminiService.extractReceiptData(base64);
       setExtractedData(receiptData);
       setShowReview(true);
     } catch (error) {
-      console.error("Error processing image:", error);
-      Alert.alert(
-        "Extraction Error",
-        "Failed to extract receipt data. Please retake the photo.",
-        [{ text: "Retake", onPress: retakePhoto }, { text: "Dismiss" }],
-      );
+      if (error instanceof RateLimitError) {
+        Alert.alert(
+          "Daily Limit Reached",
+          "You've used up your free Gemini API quota for today. Resets at midnight (Pacific Time).",
+          [{ text: "OK", onPress: retakePhoto }],
+        );
+      } else {
+        Alert.alert(
+          "Extraction Failed",
+          "Could not read the receipt. Please retake the photo in better lighting.",
+          [{ text: "Retake", onPress: retakePhoto }, { text: "Dismiss" }],
+        );
+      }
     } finally {
       setIsProcessing(false);
     }
   }
 
-  // ─── Camera & Gallery ───────────────────────────────────────────────────────
+  // ─── Camera & gallery ───────────────────────────────────────────────────────
   async function takePicture() {
     if (!cameraRef.current) return;
     try {
@@ -172,7 +174,7 @@ export default function Camera() {
     }
   }
 
-  // ─── Processing Preview (image shown while AI runs) ────────────────────────
+  // ─── Processing preview ─────────────────────────────────────────────────────
   if (capturedImage && !showReview) {
     return (
       <View className="justify-center flex-1 bg-black">
@@ -196,7 +198,7 @@ export default function Camera() {
     );
   }
 
-  // ─── Camera Screen ──────────────────────────────────────────────────────────
+  // ─── Camera screen ──────────────────────────────────────────────────────────
   return (
     <View className="flex-1 bg-black">
       <CameraView
@@ -228,184 +230,15 @@ export default function Camera() {
         </TouchableOpacity>
       </View>
 
-      {/* ─── Read-Only Review Modal ─────────────────────────────────────────── */}
-      <Modal
-        animationType="slide"
-        transparent={false}
-        visible={showReview && !!extractedData}
-        onRequestClose={retakePhoto}
-      >
-        <View className="flex-1 bg-black">
-          {/* Header */}
-          <View
-            className="flex-row items-center justify-between px-5 pb-4"
-            style={{ paddingTop: Platform.OS === "ios" ? 52 : 16 }}
-          >
-            <TouchableOpacity onPress={retakePhoto}>
-              <Ionicons name="arrow-back" size={28} color="white" />
-            </TouchableOpacity>
-            <Text className="text-xl font-semibold text-white">
-              Review Receipt
-            </Text>
-            {/* Spacer to keep title centred */}
-            <View style={{ width: 28 }} />
-          </View>
-
-          {/* Scrollable content */}
-          <ScrollView
-            className="flex-1"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: 20,
-              paddingBottom: 140,
-            }}
-          >
-            {/* Receipt thumbnail */}
-            {capturedImage && (
-              <View className="mb-6">
-                <Text className="mb-2 text-sm" style={{ color: "#9ca3af" }}>
-                  Receipt Image
-                </Text>
-                <Image
-                  source={{ uri: capturedImage }}
-                  className="w-full h-48 rounded-xl"
-                  resizeMode="contain"
-                  style={{ backgroundColor: "#202020" }}
-                />
-              </View>
-            )}
-
-            {/* Extracted fields – read-only */}
-            {extractedData && (
-              <>
-                <ReviewRow
-                  label="Merchant"
-                  value={extractedData.merchant_name || "—"}
-                />
-                <ReviewRow label="Date" value={extractedData.date || "—"} />
-                <ReviewRow label="Time" value={extractedData.time || "—"} />
-                <ReviewRow
-                  label="Total"
-                  value={`${extractedData.currency ?? "USD"} ${
-                    extractedData.total_amount?.toFixed(2) ?? "0.00"
-                  }`}
-                />
-                <ReviewRow
-                  label="Category"
-                  value={extractedData.category || "—"}
-                />
-                <ReviewRow
-                  label="Payment Method"
-                  value={extractedData.payment_method || "—"}
-                />
-                {extractedData.tax_amount != null && (
-                  <ReviewRow
-                    label="Tax Amount"
-                    value={`${extractedData.currency ?? "USD"} ${extractedData.tax_amount.toFixed(
-                      2,
-                    )}`}
-                  />
-                )}
-
-                {/* Line items */}
-                {extractedData.items && extractedData.items.length > 0 && (
-                  <View className="mb-4">
-                    <Text className="mb-2 text-sm" style={{ color: "#9ca3af" }}>
-                      Items
-                    </Text>
-                    <View
-                      className="overflow-hidden rounded-xl"
-                      style={{
-                        backgroundColor: "#202020",
-                        borderWidth: 1,
-                        borderColor: "#2a2a2a",
-                      }}
-                    >
-                      {extractedData.items.map((item, idx) => (
-                        <View
-                          key={idx}
-                          className="flex-row items-center justify-between px-4 py-3"
-                          style={{
-                            borderBottomWidth:
-                              idx < extractedData.items.length - 1 ? 1 : 0,
-                            borderBottomColor: "#2a2a2a",
-                          }}
-                        >
-                          <Text className="flex-1 mr-3 text-base text-white">
-                            {item.name}
-                          </Text>
-                          <Text style={{ color: "#9ca3af" }}>
-                            {item.quantity != null ? `×${item.quantity}  ` : ""}
-                            {extractedData.currency ?? "USD"}{" "}
-                            {item.price?.toFixed(2) ?? "—"}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
-              </>
-            )}
-          </ScrollView>
-
-          {/* Bottom action buttons */}
-          <View
-            className="absolute bottom-0 left-0 right-0 flex-row gap-3 px-5"
-            style={{
-              backgroundColor: "black",
-              paddingTop: 12,
-              paddingBottom: Platform.OS === "ios" ? 36 : 16,
-              borderTopWidth: 1,
-              borderTopColor: "#1a1a1a",
-            }}
-          >
-            {/* Retake */}
-            <TouchableOpacity
-              onPress={retakePhoto}
-              className="flex-1 py-4 rounded-xl"
-              style={{ borderWidth: 1, borderColor: "#3a4a3a" }}
-            >
-              <Text className="text-base font-semibold text-center text-white">
-                Retake
-              </Text>
-            </TouchableOpacity>
-
-            {/* Save */}
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={isSaving}
-              className="flex-1 py-4 rounded-xl"
-              style={{ backgroundColor: isSaving ? "#5a7a4a" : "#d15d28" }}
-            >
-              <Text className="text-base font-semibold text-center text-white">
-                {isSaving ? "Saving…" : "Save"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-}
-
-// ─── Read-Only Row ────────────────────────────────────────────────────────────
-interface ReviewRowProps {
-  label: string;
-  value: string;
-}
-
-function ReviewRow({ label, value }: ReviewRowProps) {
-  return (
-    <View className="mb-4">
-      <Text className="mb-1 text-sm" style={{ color: "#9ca3af" }}>
-        {label}
-      </Text>
-      <View
-        className="px-4 py-3 rounded-xl"
-        style={{ backgroundColor: "#202020" }}
-      >
-        <Text className="text-base text-white">{value}</Text>
-      </View>
+      {/* ── Extracted receipt review ── */}
+      <ReceiptReviewModal
+        visible={showReview}
+        extractedData={extractedData}
+        capturedImage={capturedImage}
+        isSaving={isSaving}
+        onRetake={retakePhoto}
+        onSave={handleSave}
+      />
     </View>
   );
 }

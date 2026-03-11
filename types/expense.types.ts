@@ -1,4 +1,5 @@
 export interface ReceiptData {
+  currency: string;
   merchant_name: string;
   date: string;
   time: string;
