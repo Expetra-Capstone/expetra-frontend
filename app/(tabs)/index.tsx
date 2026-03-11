@@ -189,7 +189,7 @@ export default function HomePage() {
       </Modal>
 
       {/* Recent Transaction Section */}
-      <View className="px-4 pb-6">
+      <View className="px-4 pb-24">
         <Text className="mb-4 text-2xl font-bold text-black">
           Recent Transaction
         </Text>
@@ -206,8 +206,11 @@ export default function HomePage() {
         />
 
         {/* Use the new TransactionList component */}
+        {/* Use the new TransactionList component */}
         <TransactionList
-          transactions={filteredTransactions}
+          transactions={[...filteredTransactions]
+            .slice(-5) // take last 5
+            .reverse()} // newest at the top (optional)
           emptyMessage="No transactions found for this filter"
         />
       </View>

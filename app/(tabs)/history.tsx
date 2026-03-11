@@ -230,7 +230,7 @@ const History = () => {
         </Modal>
 
         {/* Transaction List */}
-        <View className="px-5 pb-6">
+        <View className="px-5 pb-24">
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-lg font-bold text-black">
               All Transactions

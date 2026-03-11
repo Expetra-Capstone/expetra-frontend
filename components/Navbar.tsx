@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import React from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
 
@@ -28,10 +29,13 @@ const Navbar = () => {
         </View>
 
         <View className="flex-row items-center">
-          <TouchableOpacity className="mr-4">
+          <TouchableOpacity
+            className="mr-4"
+            onPress={() => router.push("/(tabs)/camera")}
+          >
             <Ionicons name="scan-outline" size={26} color="#1152D4" />
           </TouchableOpacity>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/(notification)")}>
             <View className="relative">
               <Ionicons
                 name="notifications-outline"
