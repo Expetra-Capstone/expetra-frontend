@@ -1,7 +1,8 @@
+// services/geminiService.ts
+
 import { GEMINI_CONFIG } from "../constants/gemeni";
 import { ReceiptData } from "../types/expense.types";
 
-// ✅ Add at the top of geminiService.ts — before the class
 export class RateLimitError extends Error {
   constructor() {
     super("Free tier limit reached");
@@ -54,7 +55,6 @@ export class GeminiService {
     model: string,
     retries = 2,
   ): Promise<ReceiptData> {
-    // ✅ Gemini uses ?key= in the URL, not Authorization header
     const url = `${this.apiUrl}/${model}:generateContent?key=${this.apiKey}`;
 
     const requestBody = {
@@ -63,7 +63,6 @@ export class GeminiService {
           parts: [
             { text: this.buildPrompt() },
             {
-              // ✅ Gemini uses inlineData, NOT image_url like OpenAI/OpenRouter
               inlineData: {
                 mimeType: "image/jpeg",
                 data: base64Image,
@@ -75,7 +74,6 @@ export class GeminiService {
       generationConfig: {
         temperature: 0.15,
         maxOutputTokens: 1024,
-        // ✅ Ask Gemini to return JSON directly — cleaner parsing
         responseMimeType: "application/json",
       },
     };
@@ -93,14 +91,12 @@ export class GeminiService {
           errorData?.error?.message ||
           `HTTP ${response.status}: ${response.statusText}`;
 
-        // ✅ Detect rate limit — 429 = RESOURCE_EXHAUSTED (daily/minute quota)
         if (response.status === 429) {
           if (attempt < retries) {
             console.warn(`Rate limited on attempt ${attempt}, retrying in 2s…`);
             await new Promise((r) => setTimeout(r, 2000 * attempt));
             continue;
           }
-          // All retries exhausted on 429 → throw named error so UI can handle it
           throw new RateLimitError();
         }
 
@@ -150,10 +146,10 @@ Rules:
     try {
       const content = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-      // ✅ We requested responseMimeType: "application/json"
-      // so content should already be clean JSON — but we still
-      // strip markdown fences defensively
+      // Strip markdown fences defensively
       const cleaned = content.replace(/```(?:json)?/g, "").trim();
+
+      // ✅ FIX 1: jsonMatch is RegExpMatchArray — use  to get the string
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       const jsonText = jsonMatch ? jsonMatch : cleaned;
 
@@ -161,6 +157,7 @@ Rules:
 
       return {
         merchant_name: parsed.merchant_name || "Unknown Merchant",
+        // ✅ FIX 2: .split("T") returns an array — use  to get the date string
         date: parsed.date || new Date().toISOString().split("T"),
         time: parsed.time || new Date().toTimeString().slice(0, 5),
         total_amount: Number(parsed.total_amount) || 0,
