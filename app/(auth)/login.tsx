@@ -15,6 +15,7 @@ import {
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
+
 const PersonIcon: React.FC<{ color: string }> = ({ color }) => (
   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
     <Circle cx="12" cy="8" r="4" stroke={color} strokeWidth="2" fill="none" />
@@ -72,6 +73,7 @@ const TeamIcon: React.FC<{ color: string }> = ({ color }) => (
 );
 
 // ─── TAB CONFIG ───────────────────────────────────────────────────────────────
+
 interface TabConfig {
   type: AccountType;
   label: string;
@@ -85,6 +87,7 @@ const TABS: TabConfig[] = [
 ];
 
 // ─── VALIDATION ───────────────────────────────────────────────────────────────
+
 interface LoginErrors {
   phone?: string;
   password?: string;
@@ -100,6 +103,7 @@ const validate = (phone: string, password: string): LoginErrors => {
 };
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
+
 export default function LoginScreen() {
   const { login } = useAuth();
   const [activeTab, setActiveTab] = useState<AccountType>("personal");
@@ -120,7 +124,6 @@ export default function LoginScreen() {
     if (!result.success) {
       Alert.alert("Login Failed", result.error);
     } else {
-      // ✅ FIX 1: replace so user cannot press back into login
       router.replace("/(tabs)");
     }
   };
@@ -148,7 +151,6 @@ export default function LoginScreen() {
           return (
             <TouchableOpacity
               key={type}
-              // ✅ Remove shadow-sm from className — move to style prop
               className={`flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-xl ${
                 isActive ? "bg-white" : ""
               }`}
@@ -234,7 +236,6 @@ export default function LoginScreen() {
       {/* Sign up link */}
       <TouchableOpacity
         className="items-center mt-6"
-        // ✅ FIX 3: router.back() instead of router.push to avoid stack buildup
         onPress={() => router.back()}
         activeOpacity={0.7}
       >
