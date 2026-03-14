@@ -1,10 +1,10 @@
-// app/(tabs)/add.tsx
-
 import { LoadingOverlay } from "@/components/screenshot/LoadingOverlay";
-import { ReceiptReviewModal } from "@/components/screenshot/ReceiptReviewModal";
+import { TransactionReviewModal } from "@/components/screenshot/ReceiptReviewModal";
 import { GeminiService, RateLimitError } from "@/services/gemeniService";
+import { TransactionData } from "@/types/transaction.type";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
+import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useRef, useState } from "react";
 import {
@@ -15,19 +15,43 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { ReceiptData } from "../../types/expense.types";
 
 // ─── Mock API ─────────────────────────────────────────────────────────────────
-async function saveExpenseToApi(
-  data: ReceiptData,
-  imageUri: string,
-): Promise<void> {
-  return new Promise((resolve) => {
+async function saveTransactionToApi(data: TransactionData): Promise<void> {
+  return new Promise((resolve, reject) => {
     setTimeout(() => {
-      console.log("[Mock API] POST /expenses", { data, imageUri });
+      if (!data.amount || !data.sender_name || !data.transaction_type) {
+        reject(
+          new Error(
+            "Missing required fields: amount, sender_name, transaction_type",
+          ),
+        );
+        return;
+      }
+      console.log("[Mock API] POST /transactions", {
+        transaction: {
+          transaction_time: data.transaction_time,
+          amount: data.amount,
+          sender_name: data.sender_name,
+          sender_account: data.sender_account,
+          beneficiary_name: data.beneficiary_name,
+          beneficiary_account: data.beneficiary_account,
+          beneficiary_bank: data.beneficiary_bank,
+          transaction_type: data.transaction_type,
+        },
+      });
       resolve();
     }, 1200);
   });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── FIX: Reliably read base64 from URI when ImagePicker returns null ─────────
+async function getBase64FromUri(uri: string): Promise<string> {
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return base64;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -37,7 +61,8 @@ export default function Camera() {
   const cameraRef = useRef<CameraView>(null);
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [extractedData, setExtractedData] = useState<ReceiptData | null>(null);
+  const [transactionData, setTransactionData] =
+    useState<TransactionData | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,17 +103,37 @@ export default function Camera() {
 
   function retakePhoto() {
     setCapturedImage(null);
-    setExtractedData(null);
+    setTransactionData(null);
     setShowReview(false);
+    setIsProcessing(false);
   }
 
-  async function processImage(base64: string, uri: string) {
+  async function processImage(uri: string, base64OrNull: string | null) {
+    // FIX: Show the loading overlay for at least one render cycle before
+    // the heavy async work starts — prevents the state from collapsing
+    // into a single batched render on fast errors.
+    setCapturedImage(uri);
     setIsProcessing(true);
+
+    // Yield to React so the loading overlay actually paints before we block
+    await new Promise((r) => setTimeout(r, 50));
+
     try {
-      const receiptData = await geminiService.extractReceiptData(base64);
-      setExtractedData(receiptData);
+      // FIX: If ImagePicker gave us null base64 (known Android bug),
+      // fall back to reading the file directly via expo-file-system.
+      const base64 =
+        base64OrNull && base64OrNull.length > 0
+          ? base64OrNull
+          : await getBase64FromUri(uri);
+
+      const data = await geminiService.extractTransactionData(base64);
+      setTransactionData(data);
       setShowReview(true);
     } catch (error) {
+      // FIX: Surface the actual error message so you can debug it
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+
       if (error instanceof RateLimitError) {
         Alert.alert(
           "Daily Limit Reached",
@@ -98,7 +143,7 @@ export default function Camera() {
       } else {
         Alert.alert(
           "Extraction Failed",
-          "Could not read the receipt. Please retake the photo in better lighting.",
+          `Could not read the transaction.\n\nError: ${errorMessage}`,
           [{ text: "Retake", onPress: retakePhoto }, { text: "Dismiss" }],
         );
       }
@@ -112,13 +157,13 @@ export default function Camera() {
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
+        quality: 0.8,
         base64: true,
         skipProcessing: true,
       });
-      if (photo?.base64) {
-        setCapturedImage(photo.uri);
-        await processImage(photo.base64, photo.uri);
+      if (photo?.uri) {
+        // FIX: Always pass the uri; base64 may be null
+        await processImage(photo.uri, photo.base64 ?? null);
       }
     } catch (error) {
       console.error("Error taking picture:", error);
@@ -141,16 +186,14 @@ export default function Camera() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: false,
-        quality: 1,
+        quality: 0.8,
         base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
         const selected = result.assets[0];
-        setCapturedImage(selected.uri);
-        if (selected.base64) {
-          await processImage(selected.base64, selected.uri);
-        }
+        // FIX: Always call processImage — it handles null base64 internally
+        await processImage(selected.uri, selected.base64 ?? null);
       }
     } catch (error) {
       console.error("Error picking image:", error);
@@ -160,15 +203,16 @@ export default function Camera() {
 
   // ─── Save ───────────────────────────────────────────────────────────────────
   async function handleSave() {
-    if (!extractedData || !capturedImage) return;
+    if (!transactionData) return;
     setIsSaving(true);
     try {
-      await saveExpenseToApi(extractedData, capturedImage);
-      Alert.alert("Saved!", "Your expense has been recorded.", [
+      await saveTransactionToApi(transactionData);
+      Alert.alert("Saved!", "Your transaction has been recorded.", [
         { text: "OK", onPress: retakePhoto },
       ]);
-    } catch {
-      Alert.alert("Error", "Failed to save expense. Please try again.");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Please try again.";
+      Alert.alert("Error", `Failed to save transaction. ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -183,7 +227,9 @@ export default function Camera() {
           className="flex-1"
           resizeMode="contain"
         />
-        {isProcessing && <LoadingOverlay message="Extracting receipt data…" />}
+        {isProcessing && (
+          <LoadingOverlay message="Extracting transaction data…" />
+        )}
         {!isProcessing && (
           <View className="absolute flex-row justify-around w-full px-16 bottom-16">
             <TouchableOpacity
@@ -230,10 +276,9 @@ export default function Camera() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Extracted receipt review ── */}
-      <ReceiptReviewModal
+      <TransactionReviewModal
         visible={showReview}
-        extractedData={extractedData}
+        transactionData={transactionData}
         capturedImage={capturedImage}
         isSaving={isSaving}
         onRetake={retakePhoto}

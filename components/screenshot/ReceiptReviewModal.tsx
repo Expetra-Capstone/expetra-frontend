@@ -1,5 +1,4 @@
-// components/ReceiptReviewModal.tsx
-
+import { TransactionData } from "@/types/transaction.type";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Image,
@@ -10,30 +9,41 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { ReceiptData } from "../../types/expense.types";
 
-interface ReceiptReviewModalProps {
+interface TransactionReviewModalProps {
   visible: boolean;
-  extractedData: ReceiptData | null;
+  transactionData: TransactionData | null;
   capturedImage: string | null;
   isSaving: boolean;
   onRetake: () => void;
   onSave: () => void;
 }
 
-export function ReceiptReviewModal({
+export function TransactionReviewModal({
   visible,
-  extractedData,
+  transactionData,
   capturedImage,
   isSaving,
   onRetake,
   onSave,
-}: ReceiptReviewModalProps) {
+}: TransactionReviewModalProps) {
+  // Format ISO datetime to human-readable string
+  function formatDateTime(iso: string): string {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return iso;
+    }
+  }
+
   return (
     <Modal
       animationType="slide"
       transparent={false}
-      visible={visible && !!extractedData}
+      visible={visible && !!transactionData}
       onRequestClose={onRetake}
     >
       <View className="flex-1 bg-gray-100">
@@ -49,9 +59,8 @@ export function ReceiptReviewModal({
             <Ionicons name="arrow-back" size={22} color="#111827" />
           </TouchableOpacity>
           <Text className="text-xl font-semibold text-gray-900">
-            Review Receipt
+            Review Transaction
           </Text>
-          {/* spacer to keep title centered */}
           <View style={{ width: 36 }} />
         </View>
 
@@ -61,10 +70,10 @@ export function ReceiptReviewModal({
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
         >
-          {/* ── Receipt thumbnail ── */}
+          {/* ── Image thumbnail ── */}
           {capturedImage && (
             <View className="mb-3 overflow-hidden bg-white rounded-2xl">
-              <SectionLabel text="Receipt Image" />
+              <SectionLabel text="Captured Image" />
               <Image
                 source={{ uri: capturedImage }}
                 className="w-full h-48"
@@ -75,96 +84,70 @@ export function ReceiptReviewModal({
             </View>
           )}
 
-          {extractedData && (
+          {transactionData && (
             <>
-              {/* ── Main Details Card ── */}
-              <View className="mb-3 overflow-hidden bg-white rounded-2xl">
-                <SectionLabel text="Receipt Details" />
-                <DataRow
-                  iconName="storefront-outline"
-                  label="Merchant"
-                  value={extractedData.merchant_name || "—"}
-                />
-                <DataRow
-                  iconName="calendar-outline"
-                  label="Date"
-                  value={extractedData.date || "—"}
-                />
-                <DataRow
-                  iconName="time-outline"
-                  label="Time"
-                  value={extractedData.time || "—"}
-                />
-                <DataRow
-                  iconName="grid-outline"
-                  label="Category"
-                  value={extractedData.category || "—"}
-                />
-                <DataRow
-                  iconName="card-outline"
-                  label="Payment Method"
-                  value={extractedData.payment_method || "—"}
-                  isLast
-                />
-              </View>
-
               {/* ── Amount Card ── */}
               <View className="p-4 mb-3 bg-white rounded-2xl">
                 <Text className="mb-3 text-xs font-semibold tracking-widest text-gray-400 uppercase">
                   Amount
                 </Text>
-                <View className="flex-row items-center justify-between">
-                  <Text className="text-base text-gray-500">Total</Text>
-                  <Text className="text-2xl font-extrabold text-gray-900">
-                    {extractedData.currency ?? "USD"}{" "}
-                    {extractedData.total_amount?.toFixed(2) ?? "0.00"}
-                  </Text>
-                </View>
-
-                {extractedData.tax_amount != null &&
-                  extractedData.tax_amount > 0 && (
-                    <>
-                      <View className="h-px my-3 bg-gray-100" />
-                      <View className="flex-row items-center justify-between">
-                        <Text className="text-sm text-gray-500">Tax</Text>
-                        <Text className="text-sm font-semibold text-gray-700">
-                          {extractedData.currency ?? "USD"}{" "}
-                          {extractedData.tax_amount.toFixed(2)}
-                        </Text>
-                      </View>
-                    </>
-                  )}
+                <Text className="text-3xl font-extrabold text-gray-900">
+                  {transactionData.amount.toFixed(2)}
+                </Text>
               </View>
 
-              {/* ── Line Items Card ── */}
-              {extractedData.items && extractedData.items.length > 0 && (
-                <View className="mb-3 overflow-hidden bg-white rounded-2xl">
-                  <SectionLabel
-                    text={`Items  ·  ${extractedData.items.length}`}
-                  />
-                  {extractedData.items.map((item, idx) => (
-                    <View
-                      key={idx}
-                      className="flex-row items-center px-4 py-3"
-                      style={{
-                        borderTopWidth: idx === 0 ? 0 : 1,
-                        borderTopColor: "#F3F4F6",
-                      }}
-                    >
-                      <View className="w-2 h-2 mr-3 bg-blue-500 rounded-full" />
-                      <Text className="flex-1 text-[15px] font-medium text-gray-800 mr-3">
-                        {item.name}
-                      </Text>
-                      <Text className="text-sm text-gray-500">
-                        {item.quantity != null ? `×${item.quantity}  ` : ""}
-                        {extractedData.currency ?? "USD"}{" "}
-                        {item.price?.toFixed(2) ?? "—"}
-                      </Text>
-                    </View>
-                  ))}
-                  <View className="h-2" />
-                </View>
-              )}
+              {/* ── Sender Card ── */}
+              <View className="mb-3 overflow-hidden bg-white rounded-2xl">
+                <SectionLabel text="Sender" />
+                <DataRow
+                  iconName="person-outline"
+                  label="Sender Name"
+                  value={transactionData.sender_name}
+                />
+                <DataRow
+                  iconName="card-outline"
+                  label="Sender Account"
+                  value={transactionData.sender_account ?? "—"}
+                  isLast
+                />
+              </View>
+
+              {/* ── Beneficiary Card ── */}
+              <View className="mb-3 overflow-hidden bg-white rounded-2xl">
+                <SectionLabel text="Beneficiary" />
+                <DataRow
+                  iconName="person-outline"
+                  label="Beneficiary Name"
+                  value={transactionData.beneficiary_name ?? "—"}
+                />
+                <DataRow
+                  iconName="card-outline"
+                  label="Beneficiary Account"
+                  value={transactionData.beneficiary_account ?? "—"}
+                />
+                <DataRow
+                  iconName="business-outline"
+                  label="Beneficiary Bank"
+                  value={transactionData.beneficiary_bank ?? "—"}
+                  isLast
+                />
+              </View>
+
+              {/* ── Transaction Meta Card ── */}
+              <View className="mb-3 overflow-hidden bg-white rounded-2xl">
+                <SectionLabel text="Transaction Details" />
+                <DataRow
+                  iconName="time-outline"
+                  label="Transaction Time"
+                  value={formatDateTime(transactionData.transaction_time)}
+                />
+                <DataRow
+                  iconName="swap-horizontal-outline"
+                  label="Transaction Type"
+                  value={transactionData.transaction_type.toUpperCase()}
+                  isLast
+                />
+              </View>
             </>
           )}
         </ScrollView>
@@ -193,7 +176,7 @@ export function ReceiptReviewModal({
             style={{ backgroundColor: isSaving ? "#93C5FD" : "#1152D4" }}
           >
             <Text className="text-base font-semibold text-white">
-              {isSaving ? "Saving…" : "Save Receipt"}
+              {isSaving ? "Saving…" : "Save Transaction"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -228,12 +211,9 @@ function DataRow({ iconName, label, value, isLast = false }: DataRowProps) {
         borderBottomColor: "#F3F4F6",
       }}
     >
-      {/* Icon badge */}
       <View className="items-center justify-center mr-3 w-9 h-9 rounded-xl bg-blue-50">
         <Ionicons name={iconName} size={17} color="#1152D4" />
       </View>
-
-      {/* Label + Value stacked */}
       <View className="flex-1">
         <Text className="text-xs text-gray-400 mb-0.5">{label}</Text>
         <Text className="text-[15px] font-semibold text-gray-900">{value}</Text>
