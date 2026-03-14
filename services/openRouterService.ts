@@ -1,7 +1,7 @@
 // services/openRouterService.ts
 
 import { OPENROUTER_CONFIG } from "../constants/openRouter";
-import { ReceiptData } from "../types/expense.types";
+import { ReceiptData } from "../types/transaction.type";
 
 export class OpenRouterService {
   private static instance: OpenRouterService;

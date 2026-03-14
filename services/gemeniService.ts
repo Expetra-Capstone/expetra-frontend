@@ -1,7 +1,5 @@
-// services/geminiService.ts
-
-import { GEMINI_CONFIG } from "../constants/gemeni";
-import { ReceiptData } from "../types/expense.types";
+import { GEMINI_CONFIG } from "@/constants/gemeni";
+import { TransactionData } from "@/types/transaction.type";
 
 export class RateLimitError extends Error {
   constructor() {
@@ -31,7 +29,7 @@ export class GeminiService {
     return GeminiService.instance;
   }
 
-  async extractReceiptData(base64Image: string): Promise<ReceiptData> {
+  async extractTransactionData(base64Image: string): Promise<TransactionData> {
     try {
       return await this.callModel(base64Image, this.model);
     } catch (primaryError) {
@@ -40,7 +38,7 @@ export class GeminiService {
         return await this.callModel(base64Image, this.fallbackModel);
       } catch (fallbackError) {
         throw new Error(
-          `Failed to extract receipt data: ${
+          `Failed to extract transaction data: ${
             fallbackError instanceof Error
               ? fallbackError.message
               : "Unknown error"
@@ -54,7 +52,7 @@ export class GeminiService {
     base64Image: string,
     model: string,
     retries = 2,
-  ): Promise<ReceiptData> {
+  ): Promise<TransactionData> {
     const url = `${this.apiUrl}/${model}:generateContent?key=${this.apiKey}`;
 
     const requestBody = {
@@ -72,8 +70,8 @@ export class GeminiService {
         },
       ],
       generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 1024,
+        temperature: 0.1,
+        maxOutputTokens: 512,
         responseMimeType: "application/json",
       },
     };
@@ -119,87 +117,61 @@ export class GeminiService {
   }
 
   private buildPrompt(): string {
-    return `Analyze this receipt image and extract the following information. Return ONLY a valid JSON object with no markdown or extra text:
+    return `Analyze this transaction image (which may be a bank SMS screenshot, bank receipt, transfer slip, or invoice) and extract the following fields. Return ONLY a valid JSON object with no markdown or extra text:
 
 {
-  "merchant_name": "Name of the store/restaurant",
-  "date": "Date in YYYY-MM-DD format",
-  "time": "Time in HH:MM format (24-hour)",
-  "total_amount": 0.00,
-  "currency": "3-letter ISO currency code e.g. USD, EUR, ETB",
-  "category": "One of: Food & Dining, Transportation, Shopping, Entertainment, Healthcare, Utilities, Other",
-  "payment_method": "One of: Cash, Credit Card, Debit Card, Mobile Payment, Other",
-  "tax_amount": 0.00,
-  "items": [
-    { "name": "Item name", "quantity": 1, "price": 0.00 }
-  ]
+  "transaction_time": "ISO 8601 datetime string e.g. 2026-03-14T10:30:00Z — use T00:00:00Z if only date is visible",
+  "amount": 0.00,
+  "sender_name": "Full name of the person or entity who sent/paid",
+  "sender_account": "Sender account number or phone number, null if not visible",
+  "beneficiary_name": "Full name of the recipient, null if not visible",
+  "beneficiary_account": "Recipient account number or phone number, null if not visible",
+  "beneficiary_bank": "Name of the recipient's bank, null if not visible",
+  "transaction_type": "One of: sms, bank_transfer, receipt, invoice, other"
 }
 
 Rules:
 - Return ONLY the JSON object, no other text
-- All numeric values must be numbers not strings
-- Use exact category and payment_method values listed above
-- Extract all visible line items`;
+- amount must be a number, not a string
+- transaction_type should be 'sms' for mobile money/SMS alerts, 'bank_transfer' for wire transfers, 'receipt' for physical receipts, 'invoice' for invoices
+- If a field is truly not visible or determinable, use null
+- Do not guess sender_name or amount — only extract what is clearly visible`;
   }
 
-  private parseResponse(response: any): ReceiptData {
+  private parseResponse(response: any): TransactionData {
     try {
       const content = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
       // Strip markdown fences defensively
       const cleaned = content.replace(/```(?:json)?/g, "").trim();
 
-      // ✅ FIX 1: jsonMatch is RegExpMatchArray — use  to get the string
+      // FIX: jsonMatch is a RegExpMatchArray — use  to get the matched string
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       const jsonText = jsonMatch ? jsonMatch : cleaned;
 
       const parsed = JSON.parse(jsonText);
 
       return {
-        merchant_name: parsed.merchant_name || "Unknown Merchant",
-        // ✅ FIX 2: .split("T") returns an array — use  to get the date string
-        date: parsed.date || new Date().toISOString().split("T"),
-        time: parsed.time || new Date().toTimeString().slice(0, 5),
-        total_amount: Number(parsed.total_amount) || 0,
-        currency: parsed.currency || "USD",
-        category: this.validateCategory(parsed.category),
-        payment_method: this.validatePaymentMethod(parsed.payment_method),
-        tax_amount: Number(parsed.tax_amount) || 0,
-        items: Array.isArray(parsed.items)
-          ? parsed.items.map((item: any) => ({
-              name: item.name || "Unknown Item",
-              quantity: Number(item.quantity) || 1,
-              price: Number(item.price) || 0,
-            }))
-          : [],
+        // FIX: .split("T") returns an array — use  for the date portion
+        transaction_time:
+          parsed.transaction_time ||
+          new Date().toISOString().split("T") + "T00:00:00Z",
+        amount: Number(parsed.amount) || 0,
+        sender_name: parsed.sender_name || "Unknown Sender",
+        sender_account: parsed.sender_account ?? null,
+        beneficiary_name: parsed.beneficiary_name ?? null,
+        beneficiary_account: parsed.beneficiary_account ?? null,
+        beneficiary_bank: parsed.beneficiary_bank ?? null,
+        transaction_type: this.validateTransactionType(parsed.transaction_type),
       };
     } catch (error) {
       console.error("Error parsing Gemini response:", error);
-      throw new Error("Failed to parse receipt data from Gemini response");
+      throw new Error("Failed to parse transaction data from Gemini response");
     }
   }
 
-  private validateCategory(category: string): string {
-    const valid = [
-      "Food & Dining",
-      "Transportation",
-      "Shopping",
-      "Entertainment",
-      "Healthcare",
-      "Utilities",
-      "Other",
-    ];
-    return valid.includes(category) ? category : "Other";
-  }
-
-  private validatePaymentMethod(method: string): string {
-    const valid = [
-      "Cash",
-      "Credit Card",
-      "Debit Card",
-      "Mobile Payment",
-      "Other",
-    ];
-    return valid.includes(method) ? method : "Other";
+  private validateTransactionType(type: string): string {
+    const valid = ["sms", "bank_transfer", "receipt", "invoice", "other"];
+    return valid.includes(type) ? type : "other";
   }
 }
