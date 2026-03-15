@@ -34,7 +34,6 @@ interface AuthResult {
   error?: string;
 }
 
-// registerOwner returns the invitationId so the UI can display it
 interface RegisterOwnerResult extends AuthResult {
   invitationId?: string;
 }
@@ -74,13 +73,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-async function saveSession(token: string, role: Role, user: AuthUser) {
+async function saveSession(
+  token: string,
+  role: Role,
+  user: AuthUser,
+): Promise<void> {
   await SecureStore.setItemAsync(TOKEN_KEY, token);
   await SecureStore.setItemAsync(ROLE_KEY, role);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
 }
 
-async function clearSession() {
+async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
   await SecureStore.deleteItemAsync(ROLE_KEY);
   await SecureStore.deleteItemAsync(USER_KEY);
@@ -95,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [role, setRole] = useState<Role | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restore session on app start
+  // ── Restore session on app start ───────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
@@ -111,7 +114,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           setUser(JSON.parse(storedUser) as AuthUser);
         }
       } catch {
-        // Silently clear corrupted state
         await clearSession();
       } finally {
         setIsLoading(false);
@@ -119,12 +121,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     })();
   }, []);
 
-  const applySession = useCallback(async (t: string, r: Role, u: AuthUser) => {
-    await saveSession(t, r, u);
-    setToken(t);
-    setRole(r);
-    setUser(u);
-  }, []);
+  const applySession = useCallback(
+    async (t: string, r: Role, u: AuthUser): Promise<void> => {
+      await saveSession(t, r, u);
+      setToken(t);
+      setRole(r);
+      setUser(u);
+    },
+    [],
+  );
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
   const login = useCallback(
@@ -145,12 +150,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const { token: t, role: r } = loginResult.data;
 
-      // For owners, fetch the full profile (includes business info)
       if (isOwner) {
+        // ── Owner: fetch full profile from /owners/me ──────────────────────
         const profileResult = await api.getOwnerProfile(t);
+
         if (profileResult.error) {
-          return { success: false, error: profileResult.error };
+          // Token is valid but profile fetch failed — persist minimal data
+          // so the user is still logged in and can retry later.
+          await applySession(t, r, {
+            id: 0,
+            name: "",
+            phone: phone.trim(),
+            role: r,
+          });
+          return { success: true };
         }
+
         const { owner, business } = profileResult.data;
         await applySession(t, r, {
           id: owner.id,
@@ -161,11 +176,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           role: r,
         });
       } else {
-        // Employees have no /me endpoint — store minimal info from login
+        // ── Employee: fetch full profile from /employees/me ────────────────
+        // FIX: previously this branch stored empty id/name, causing the
+        // profile page to show blank data after an employee login.
+        const profileResult = await api.getEmployeeProfile(t);
+
+        if (profileResult.error) {
+          // Token is valid but profile fetch failed — persist minimal data.
+          await applySession(t, r, {
+            id: 0,
+            name: "",
+            phone: phone.trim(),
+            role: r,
+          });
+          return { success: true };
+        }
+
+        const emp = profileResult.data;
         await applySession(t, r, {
-          id: 0,
-          name: "",
-          phone: phone.trim(),
+          id: emp.id,
+          name: emp.name,
+          phone: emp.phone ?? phone.trim(),
+          business: emp.business
+            ? {
+                id: emp.business.id,
+                name: emp.business.name,
+                invitation_id: "",
+              }
+            : undefined,
           role: r,
         });
       }
@@ -192,7 +230,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const { owner, business } = createResult.data;
 
-      // Auto-login after registration
       const loginResult = await api.ownerLogin(data.phone, data.password);
       if (loginResult.error) {
         return { success: false, error: loginResult.error };
@@ -209,7 +246,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         role: r,
       });
 
-      // Return the invitation_id so the UI can show the modal
       return { success: true, invitationId: business.invitation_id };
     },
     [applySession],
@@ -232,7 +268,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const emp = createResult.data;
 
-      // Auto-login after registration
       const loginResult = await api.employeeLogin(data.phone, data.password);
       if (loginResult.error) {
         return { success: false, error: loginResult.error };
@@ -243,9 +278,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       await applySession(t, r, {
         id: emp.id,
         name: emp.name,
-        phone: data.phone,
+        phone: emp.phone ?? data.phone,
         business: emp.business
-          ? { id: emp.business.id, name: emp.business.name, invitation_id: "" }
+          ? {
+              id: emp.business.id,
+              name: emp.business.name,
+              invitation_id: "",
+            }
           : undefined,
         role: r,
       });
@@ -256,7 +295,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   // ── LOGOUT ─────────────────────────────────────────────────────────────────
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (): Promise<void> => {
     await clearSession();
     setToken(null);
     setRole(null);
