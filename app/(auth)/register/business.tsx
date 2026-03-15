@@ -1,5 +1,3 @@
-// app/(auth)/register/business.tsx
-
 import AuthInput from "@/components/auth/AuthInput";
 import GoogleButton from "@/components/auth/GoogleButton";
 import { useAuth } from "@/context/AuthContext";
