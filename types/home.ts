@@ -14,6 +14,8 @@ export interface DateRangeOption {
 export type TransactionType = "deposit" | "withdrawal";
 
 export interface Transaction {
+  beneficiary_bank: any;
+  transaction_type: any;
   id: number | string;
   bank: string; // shown in list
   vendor: string; // used on detail screen ("Awash Bank")
