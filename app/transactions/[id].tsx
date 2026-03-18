@@ -77,10 +77,10 @@ function formatDateTime(iso: string): string {
   }
 }
 
-// "sms" displays as "Screenshot", everything else is title-cased normally
 function formatType(type: string | undefined | null): string {
   if (!type) return "Other";
-  if (type.toLowerCase() === "sms") return "Screenshot";
+  if (type === "screenshot") return "Screenshot";
+  if (type === "sms") return "SMS";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

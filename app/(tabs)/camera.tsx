@@ -24,10 +24,6 @@ async function getBase64FromUri(uri: string): Promise<string> {
   });
 }
 
-// ─── Build a payload that is always safe to POST ──────────────────────────────
-// All optional fields default to "" so Rails never sees missing keys.
-// amount and transaction_type are already sanitized by GeminiService,
-// but we coerce them again here as a final safety net.
 function buildPayload(data: TransactionData) {
   return {
     transaction_time: data.transaction_time || new Date().toISOString(),
@@ -37,7 +33,7 @@ function buildPayload(data: TransactionData) {
     beneficiary_name: data.beneficiary_name ?? "",
     beneficiary_account: data.beneficiary_account ?? "",
     beneficiary_bank: data.beneficiary_bank ?? "",
-    transaction_type: data.transaction_type || "other",
+    transaction_type: "screenshot" as const,
   };
 }
 
@@ -100,7 +96,6 @@ export default function Camera() {
     setCapturedImage(uri);
     setIsProcessing(true);
 
-    // Yield so the loading overlay renders before heavy async work
     await new Promise((r) => setTimeout(r, 50));
 
     try {

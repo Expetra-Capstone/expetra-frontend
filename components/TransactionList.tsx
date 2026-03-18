@@ -25,15 +25,16 @@ function formatDate(iso: string): string {
   }
 }
 
-// "sms" displays as "Screenshot", everything else is title-cased normally
 function formatType(type: string | undefined | null): string {
   if (!type) return "Other";
-  if (type.toLowerCase() === "sms") return "Screenshot";
+  if (type === "screenshot") return "Screenshot";
+  if (type === "sms") return "SMS";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  sms: { bg: "bg-blue-500/20", text: "text-blue-600" },
+  screenshot: { bg: "bg-blue-500/20", text: "text-blue-600" },
+  sms: { bg: "bg-purple-500/20", text: "text-purple-600" },
   receipt: { bg: "bg-green-500/20", text: "text-green-600" },
   invoice: { bg: "bg-orange-500/20", text: "text-orange-600" },
   other: { bg: "bg-gray-400/20", text: "text-gray-600" },
@@ -116,7 +117,7 @@ export default function TransactionList({
 
   return (
     <FlatList
-      data={[...transactions].reverse()} // ← reversed copy; last upload appears first
+      data={transactions}
       renderItem={renderTransaction}
       keyExtractor={(item) => String(item.id)}
       scrollEnabled={scrollEnabled}

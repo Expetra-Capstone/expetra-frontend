@@ -9,8 +9,10 @@ export class RateLimitError extends Error {
 }
 
 // ─── Map any Gemini output → backend-safe enum value ─────────────────────────
-// Backend only accepts: sms | receipt | invoice | other
+// Note: camera.tsx overrides transaction_type to "screenshot" after extraction,
+// so this map is a safety net for any unexpected Gemini output.
 const TYPE_MAP: Record<string, string> = {
+  screenshot: "screenshot",
   sms: "sms",
   receipt: "receipt",
   invoice: "invoice",
@@ -30,7 +32,6 @@ function toSafeType(raw: unknown): string {
   return TYPE_MAP[raw.toLowerCase().trim()] ?? "other";
 }
 
-// ─── Parse amount to a clean number regardless of Gemini's formatting ─────────
 function toSafeAmount(raw: unknown): number {
   if (typeof raw === "number") return isNaN(raw) ? 0 : raw;
   const n = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
@@ -153,17 +154,8 @@ Extract the fields below and return ONLY a single valid JSON object. No markdown
   "sender_account": "<sender's account number, phone number, or wallet ID — null if not shown>",
   "beneficiary_name": "<full name or entity that received the money — null if not shown>",
   "beneficiary_account": "<recipient's account number, phone, or wallet ID — null if not shown>",
-  "beneficiary_bank": "<name of the recipient's bank or mobile money provider — null if not shown>",
-  "transaction_type": "<one of: sms | receipt | invoice | other>"
+  "beneficiary_bank": "<name of the recipient's bank or mobile money provider — null if not shown>"
 }
-
-Classification rules for transaction_type:
-- "sms"     → any mobile money or bank transfer notification: Telebirr, CBE Birr, M-Pesa, HelloCash, Amole, any "Transfer Money" or "Transfer Successful" screen
-- "receipt" → physical or digital POS/ATM receipt
-- "invoice" → formal invoice or bill document
-- "other"   → anything that does not clearly fit the above
-
-IMPORTANT: transaction_type must be exactly one of: sms, receipt, invoice, other — nothing else.
 
 Extraction rules:
 - amount MUST be a plain positive number (no strings, no commas, no currency signs, no minus)
@@ -171,7 +163,7 @@ Extraction rules:
 - For Ethiopian banks: recognise CBE, Awash Bank, Abyssinia Bank, Dashen, BOA, Wegagen, Telebirr, M-Pesa, HelloCash, amole
 - transaction_time: read 12-hour or 24-hour clock; convert Ethiopian calendar to Gregorian if needed
 - If a field is genuinely not visible, set it to null — do NOT guess
-- amount, sender_name, and transaction_type are required — never null`;
+- amount and sender_name are required — never null`;
   }
 
   private parseResponse(response: any): TransactionData {
@@ -191,9 +183,9 @@ Extraction rules:
         beneficiary_name: parsed.beneficiary_name ?? null,
         beneficiary_account: parsed.beneficiary_account ?? null,
         beneficiary_bank: parsed.beneficiary_bank ?? null,
-        transaction_type: toSafeType(parsed.transaction_type),
+        transaction_type: "screenshot",
       };
-    } catch (error) {
+    } catch {
       throw new Error("Failed to parse transaction data from Gemini response");
     }
   }

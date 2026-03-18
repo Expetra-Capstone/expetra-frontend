@@ -54,7 +54,7 @@ export default function HomePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDataVisible, setIsDataVisible] = useState(false);
   const [selectedBank, setSelectedBank] = useState("all");
-  const [selectedDateRange, setSelectedDateRange] = useState("7");
+  const [selectedDateRange, setSelectedDateRange] = useState("all"); // ← was "7"
   const [isDateDropdownVisible, setIsDateDropdownVisible] = useState(false);
 
   const fetchTransactions = useCallback(
@@ -105,7 +105,7 @@ export default function HomePage() {
     return result.slice(0, 5);
   }, [transactions, selectedBank, selectedDateRange]);
 
-  const displayBalance = isDataVisible ? "24,892.00" : "••••••";
+  const displayBalance = isDataVisible ? "24,892.00" : "********";
 
   const rawPhone = user?.phone ?? "";
   const displayPhone = isDataVisible
@@ -114,7 +114,7 @@ export default function HomePage() {
 
   const currentDateLabel =
     DATE_RANGE_OPTIONS.find((o) => o.id === selectedDateRange)?.label ??
-    "7 days";
+    "All time";
 
   const renderCategory = ({ item }: { item: { id: string; name: string } }) => (
     <TouchableOpacity
@@ -148,7 +148,7 @@ export default function HomePage() {
         />
       }
     >
-      {/* Balance Card */}
+      {/* ── Balance Card ── */}
       <View className="px-5 pt-3 pb-6">
         <View
           className="overflow-hidden rounded-3xl"
@@ -215,7 +215,7 @@ export default function HomePage() {
         </View>
       </View>
 
-      {/* Date Range Modal */}
+      {/* ── Date Range Modal ── */}
       <Modal
         visible={isDateDropdownVisible}
         transparent
@@ -259,13 +259,13 @@ export default function HomePage() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Recent Transactions */}
+      {/* ── Recent Transactions ── */}
       <View className="px-4 pb-24">
         <Text className="mb-4 text-2xl font-bold text-black">
           Recent Transaction
         </Text>
 
-        {/* Bank filter pills — derived from live data */}
+        {/* Bank filter pills */}
         <FlatList
           horizontal
           data={bankCategories}

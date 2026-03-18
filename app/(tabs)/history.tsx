@@ -335,7 +335,7 @@ const History = () => {
           </View>
 
           <TransactionList
-            transactions={filteredTransactions}
+            transactions={filteredTransactions.reverse()}
             emptyMessage="No transactions found for the selected filters"
           />
         </View>

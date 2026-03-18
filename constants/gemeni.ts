@@ -7,9 +7,10 @@ export const GEMINI_CONFIG = {
   API_URL: "https://generativelanguage.googleapis.com/v1beta/models",
 };
 
+// Valid transaction types accepted by the backend enum
 export const TRANSACTION_TYPES = [
-  "sms",
-  "bank_transfer",
+  "screenshot", // uploaded from camera / gallery
+  "sms", // extracted from SMS inbox
   "receipt",
   "invoice",
   "other",
