@@ -23,7 +23,8 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_SMS"
       ],
       "package": "com.bete318.expetra"
     },
@@ -70,9 +71,7 @@
       }
     },
     "owner": "bete318",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/b8c1e57e-8c81-40a9-bc3b-799e99e01495"
     }
