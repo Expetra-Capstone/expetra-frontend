@@ -52,7 +52,7 @@ export default function HomePage() {
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isDataVisible, setIsDataVisible] = useState(true);
+  const [isDataVisible, setIsDataVisible] = useState(false);
   const [selectedBank, setSelectedBank] = useState("all");
   const [selectedDateRange, setSelectedDateRange] = useState("7");
   const [isDateDropdownVisible, setIsDateDropdownVisible] = useState(false);

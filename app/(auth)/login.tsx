@@ -67,8 +67,8 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { type: "business", label: "Business", Icon: BuildingIcon },
-  { type: "team", label: "Team", Icon: TeamIcon },
+  { type: "business", label: "Owner", Icon: BuildingIcon },
+  { type: "team", label: "Employee", Icon: TeamIcon },
 ];
 
 // ─── VALIDATION ───────────────────────────────────────────────────────────────

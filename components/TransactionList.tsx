@@ -116,7 +116,7 @@ export default function TransactionList({
 
   return (
     <FlatList
-      data={transactions}
+      data={[...transactions].reverse()} // ← reversed copy; last upload appears first
       renderItem={renderTransaction}
       keyExtractor={(item) => String(item.id)}
       scrollEnabled={scrollEnabled}

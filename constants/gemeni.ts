@@ -1,5 +1,5 @@
 export const GEMINI_CONFIG = {
-  API_KEY: "AIzaSyC2Bqx2OVIorvjK-EfxVotfEwfqbp2nQPo",
+  API_KEY: process.env.EXPO_PUBLIC_GEMINI_API_KEY || "",
   // ✅ Best free vision model — 15 RPM, 500 RPD
   MODEL: "gemini-2.5-flash",
   // ✅ Fallback — higher daily quota (1000 RPD)
