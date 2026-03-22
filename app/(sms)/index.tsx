@@ -1,11 +1,11 @@
-// app/(tabs)/sms.tsx
-// Android only — SMS inbox is not accessible on iOS.
+// app/(sms)/index.tsx
 
 import { useAuth } from "@/context/AuthContext";
 import { createTransaction } from "@/services/apiService";
 import { parseAllBankSms, ParsedSms, RawSms } from "@/services/smsParser";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -45,10 +45,7 @@ function formatAmount(n: number): string {
 // ─── Read SMS from Android inbox ─────────────────────────────────────────────
 function readSmsInbox(): Promise<RawSms[]> {
   return new Promise((resolve, reject) => {
-    const filter = JSON.stringify({
-      box: "inbox",
-      maxCount: 500,
-    });
+    const filter = JSON.stringify({ box: "inbox", maxCount: 500 });
     SmsAndroid.list(
       filter,
       (error: string) => reject(new Error(error)),
@@ -63,23 +60,8 @@ function readSmsInbox(): Promise<RawSms[]> {
   });
 }
 
-// ─── iOS Placeholder ──────────────────────────────────────────────────────────
-function IOSPlaceholder() {
-  return (
-    <View className="items-center justify-center flex-1 px-8 bg-white">
-      <Ionicons name="logo-apple" size={56} color="#9CA3AF" />
-      <Text className="mt-4 text-lg font-semibold text-center text-gray-700">
-        Not available on iOS
-      </Text>
-      <Text className="mt-2 text-sm leading-relaxed text-center text-gray-400">
-        iOS does not allow apps to read SMS messages. Use the Camera tab to scan
-        a screenshot of your bank notification instead.
-      </Text>
-    </View>
-  );
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-// ─── Permission Screen ────────────────────────────────────────────────────────
 function PermissionScreen({
   status,
   onRequest,
@@ -103,13 +85,11 @@ function PermissionScreen({
         We need permission to read your SMS inbox so we can automatically detect
         and import transactions from your bank messages.
       </Text>
-
       {status === "denied" && (
         <Text className="mb-4 text-sm font-medium text-center text-red-500">
           Permission denied. Please enable SMS access in your device Settings.
         </Text>
       )}
-
       <TouchableOpacity
         onPress={onRequest}
         className="w-full py-4 bg-blue-600 rounded-2xl"
@@ -122,7 +102,6 @@ function PermissionScreen({
   );
 }
 
-// ─── SMS Card ─────────────────────────────────────────────────────────────────
 function SmsCard({
   item,
   selected,
@@ -168,7 +147,6 @@ function SmsCard({
 
       {/* Content */}
       <View className="flex-1">
-        {/* Top row — bank + amount */}
         <View className="flex-row items-center justify-between mb-1">
           <Text
             className="text-base font-semibold text-gray-900"
@@ -186,7 +164,6 @@ function SmsCard({
           </Text>
         </View>
 
-        {/* Sender / beneficiary */}
         <Text className="mb-1 text-sm text-gray-500" numberOfLines={1}>
           {item.isCredit
             ? `From: ${item.payload.sender_name}`
@@ -195,10 +172,8 @@ function SmsCard({
               : item.bankName}
         </Text>
 
-        {/* Date */}
         <Text className="text-xs text-gray-400">{formatDate(item.date)}</Text>
 
-        {/* SMS preview */}
         <Text
           className="mt-2 text-xs leading-relaxed text-gray-400"
           numberOfLines={2}
@@ -221,11 +196,10 @@ function SmsCard({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SmsScreen() {
-  // iOS bail-out
-  if (Platform.OS !== "android") return <IOSPlaceholder />;
-
+  const router = useRouter();
   const { token } = useAuth();
 
+  // All hooks declared unconditionally at the top
   const [permissionStatus, setPermissionStatus] =
     useState<PermissionStatus>("idle");
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("idle");
@@ -236,36 +210,9 @@ export default function SmsScreen() {
   const [selectedBank, setSelectedBank] = useState("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // ─── Request permission & load ─────────────────────────────────────────────
-  const requestAndLoad = useCallback(async () => {
-    try {
-      const result = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.READ_SMS,
-        {
-          title: "SMS Permission",
-          message:
-            "This app needs access to your SMS messages to detect bank transactions.",
-          buttonPositive: "Allow",
-          buttonNegative: "Deny",
-        },
-      );
-
-      if (result !== PermissionsAndroid.RESULTS.GRANTED) {
-        setPermissionStatus("denied");
-        return;
-      }
-
-      setPermissionStatus("granted");
-      await loadSms();
-    } catch {
-      setPermissionStatus("denied");
-    }
-  }, []);
-
   const loadSms = useCallback(async (isRefresh = false) => {
     if (isRefresh) setIsRefreshing(true);
     else setLoadStatus("loading");
-
     try {
       const raw = await readSmsInbox();
       const parsed = parseAllBankSms(raw);
@@ -278,7 +225,50 @@ export default function SmsScreen() {
     }
   }, []);
 
-  // ─── Bank filter pills derived from parsed data ────────────────────────────
+  // ─── Check permission on mount — auto-load if already granted ────────────
+  // This prevents asking for permission every time the screen is visited.
+  // PermissionsAndroid.check() reads the current OS-level grant without
+  // showing any dialog, so if the user already approved it stays silent.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    async function checkPermissionOnMount() {
+      const alreadyGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+      );
+      if (alreadyGranted) {
+        setPermissionStatus("granted");
+        await loadSms();
+      }
+      // If not granted, leave status as "idle" so the permission screen shows
+    }
+
+    checkPermissionOnMount();
+  }, [loadSms]);
+
+  const requestAndLoad = useCallback(async () => {
+    try {
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+        {
+          title: "SMS Permission",
+          message:
+            "This app needs access to your SMS messages to detect bank transactions.",
+          buttonPositive: "Allow",
+          buttonNegative: "Deny",
+        },
+      );
+      if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+        setPermissionStatus("denied");
+        return;
+      }
+      setPermissionStatus("granted");
+      await loadSms();
+    } catch {
+      setPermissionStatus("denied");
+    }
+  }, [loadSms]);
+
   const bankOptions = useMemo(() => {
     const names = [...new Set(allParsed.map((p) => p.bankName))];
     return [
@@ -292,7 +282,13 @@ export default function SmsScreen() {
     return allParsed.filter((p) => p.bankName === selectedBank);
   }, [allParsed, selectedBank]);
 
-  // ─── Selection helpers ─────────────────────────────────────────────────────
+  const selectableCount = filtered.filter((p) => !uploaded.has(p.id)).length;
+  const selectedCount = filtered.filter(
+    (p) => selected.has(p.id) && !uploaded.has(p.id),
+  ).length;
+  const allFilteredSelected =
+    selectableCount > 0 && selectedCount === selectableCount;
+
   function toggleItem(id: string) {
     if (uploaded.has(id)) return;
     setSelected((prev) => {
@@ -306,7 +302,6 @@ export default function SmsScreen() {
     const selectableIds = filtered
       .filter((p) => !uploaded.has(p.id))
       .map((p) => p.id);
-
     const allSelected = selectableIds.every((id) => selected.has(id));
     setSelected((prev) => {
       const next = new Set(prev);
@@ -319,17 +314,14 @@ export default function SmsScreen() {
     });
   }
 
-  // ─── Upload selected ───────────────────────────────────────────────────────
   async function handleUpload() {
     if (!token) {
       Alert.alert("Not logged in", "Please log in and try again.");
       return;
     }
-
     const toUpload = allParsed.filter(
       (p) => selected.has(p.id) && !uploaded.has(p.id),
     );
-
     if (toUpload.length === 0) return;
 
     Alert.alert(
@@ -378,58 +370,98 @@ export default function SmsScreen() {
     );
   }
 
-  // ─── States: not yet requested ─────────────────────────────────────────────
+  // ── Shared header ──────────────────────────────────────────────────────────
+  const header = (
+    <View className="flex-row items-center justify-between px-4 pt-4 pb-3 bg-white border-b border-gray-100">
+      <TouchableOpacity
+        className="items-center justify-center w-9 h-9"
+        onPress={() => router.back()}
+      >
+        <Ionicons name="arrow-back" size={22} color="#111827" />
+      </TouchableOpacity>
+      <Text className="text-xl font-semibold text-gray-900">SMS Parsing</Text>
+      <View style={{ width: 36 }} />
+    </View>
+  );
+
+  // ── iOS ────────────────────────────────────────────────────────────────────
+  if (Platform.OS !== "android") {
+    return (
+      <View className="flex-1 bg-white">
+        {header}
+        <View className="items-center justify-center flex-1 px-8">
+          <Ionicons name="logo-apple" size={56} color="#9CA3AF" />
+          <Text className="mt-4 text-lg font-semibold text-center text-gray-700">
+            Not available on iOS
+          </Text>
+          <Text className="mt-2 text-sm leading-relaxed text-center text-gray-400">
+            iOS does not allow apps to read SMS messages. Use the Camera tab to
+            scan a screenshot of your bank notification instead.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Permission not yet granted ─────────────────────────────────────────────
   if (permissionStatus === "idle" || permissionStatus === "denied") {
     return (
-      <PermissionScreen status={permissionStatus} onRequest={requestAndLoad} />
+      <View className="flex-1 bg-white">
+        {header}
+        <PermissionScreen
+          status={permissionStatus}
+          onRequest={requestAndLoad}
+        />
+      </View>
     );
   }
 
-  // ─── Loading ───────────────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loadStatus === "loading") {
     return (
-      <View className="items-center justify-center flex-1 bg-white">
-        <ActivityIndicator size="large" color="#1152D4" />
-        <Text className="mt-3 text-sm text-gray-500">
-          Scanning SMS messages…
-        </Text>
+      <View className="flex-1 bg-white">
+        {header}
+        <View className="items-center justify-center flex-1">
+          <ActivityIndicator size="large" color="#1152D4" />
+          <Text className="mt-3 text-sm text-gray-500">
+            Scanning SMS messages...
+          </Text>
+        </View>
       </View>
     );
   }
 
-  // ─── Error ─────────────────────────────────────────────────────────────────
+  // ── Error ──────────────────────────────────────────────────────────────────
   if (loadStatus === "error") {
     return (
-      <View className="items-center justify-center flex-1 px-8 bg-white">
-        <Ionicons name="warning-outline" size={48} color="#9CA3AF" />
-        <Text className="mt-3 text-base font-semibold text-center text-gray-700">
-          Could not read SMS messages.
-        </Text>
-        <TouchableOpacity
-          className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
-          onPress={() => loadSms()}
-        >
-          <Text className="font-semibold text-white">Retry</Text>
-        </TouchableOpacity>
+      <View className="flex-1 bg-white">
+        {header}
+        <View className="items-center justify-center flex-1 px-8">
+          <Ionicons name="warning-outline" size={48} color="#9CA3AF" />
+          <Text className="mt-3 text-base font-semibold text-center text-gray-700">
+            Could not read SMS messages.
+          </Text>
+          <TouchableOpacity
+            className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
+            onPress={() => loadSms()}
+          >
+            <Text className="font-semibold text-white">Retry</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
-  // ─── Loaded ────────────────────────────────────────────────────────────────
-  const selectableCount = filtered.filter((p) => !uploaded.has(p.id)).length;
-  const selectedCount = filtered.filter(
-    (p) => selected.has(p.id) && !uploaded.has(p.id),
-  ).length;
-  const allFilteredSelected =
-    selectableCount > 0 && selectedCount === selectableCount;
-
+  // ── Loaded ─────────────────────────────────────────────────────────────────
   return (
     <View className="flex-1 mb-20 bg-white">
-      {/* ── Header ── */}
-      <View className="px-5 pt-4 pb-3 bg-white border-b border-gray-100">
+      {header}
+
+      {/* Filter + refresh row */}
+      <View className="px-5 pt-3 pb-3 bg-white border-b border-gray-100">
         <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-xl font-bold text-gray-900">
-            SMS Transactions
+          <Text className="text-sm font-medium text-gray-500">
+            {filtered.length} message{filtered.length !== 1 ? "s" : ""} found
           </Text>
           <TouchableOpacity onPress={() => loadSms(false)}>
             <Ionicons name="refresh-outline" size={22} color="#1152D4" />
@@ -464,7 +496,7 @@ export default function SmsScreen() {
         />
       </View>
 
-      {/* ── Select-all row ── */}
+      {/* Select-all row */}
       {filtered.length > 0 && (
         <TouchableOpacity
           onPress={toggleAll}
@@ -490,7 +522,7 @@ export default function SmsScreen() {
         </TouchableOpacity>
       )}
 
-      {/* ── List ── */}
+      {/* List */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -524,7 +556,7 @@ export default function SmsScreen() {
         )}
       />
 
-      {/* ── Upload FAB ── */}
+      {/* Upload button */}
       {selectedCount > 0 && (
         <View
           className="absolute bottom-0 left-0 right-0 px-5 bg-white border-t border-gray-100"
@@ -540,7 +572,7 @@ export default function SmsScreen() {
               <>
                 <ActivityIndicator size="small" color="#FFFFFF" />
                 <Text className="ml-2 text-base font-semibold text-white">
-                  Uploading…
+                  Uploading...
                 </Text>
               </>
             ) : (

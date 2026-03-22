@@ -2,12 +2,12 @@ import { useRouter } from "expo-router";
 import { Settings01Icon } from "hugeicons-react-native";
 import React from "react";
 import {
-    FlatList,
-    SafeAreaView,
-    StatusBar,
-    Text,
-    TouchableOpacity,
-    View,
+  FlatList,
+  SafeAreaView,
+  StatusBar,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 
@@ -82,26 +82,6 @@ const BackIcon: React.FC = () => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-  </Svg>
-);
-
-const BellDotIcon: React.FC = () => (
-  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M12 3a5 5 0 00-5 5v3.5L6 14h12l-1-2.5V8a5 5 0 00-5-5z"
-      stroke="#111827"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-    />
-    <Path
-      d="M10 18a2 2 0 004 0"
-      stroke="#111827"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-    />
-    <Circle cx={17.5} cy={6.5} r={3} fill="#EF4444" />
   </Svg>
 );
 
