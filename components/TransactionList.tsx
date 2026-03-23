@@ -25,10 +25,11 @@ function formatDate(iso: string): string {
   }
 }
 
+// Must stay in sync with formatTypeLabel in history.tsx
 function formatType(type: string | undefined | null): string {
   if (!type) return "Other";
-  if (type === "screenshot") return "Screenshot";
   if (type === "sms") return "SMS";
+  if (type === "screenshot") return "Screenshot";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

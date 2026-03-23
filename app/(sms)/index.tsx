@@ -27,6 +27,9 @@ import SmsAndroid from "react-native-get-sms-android";
 type PermissionStatus = "idle" | "granted" | "denied";
 type SyncStatus = "idle" | "syncing" | "done" | "error";
 
+// ─── 3-day window in milliseconds ────────────────────────────────────────────
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string): string {
   try {
@@ -46,24 +49,24 @@ function formatAmount(n: number): string {
   });
 }
 
+// ─── Read SMS inbox — last 3 days only ───────────────────────────────────────
+// minDate trims the fetch to the last 72 hours so private/personal messages
+// from before that window are never loaded into memory at all.
+// After fetching, isBankSms() still filters out any non-bank messages that
+// happen to arrive within those 3 days.
 function readSmsInbox(): Promise<RawSms[]> {
   return new Promise((resolve, reject) => {
-    const filter = JSON.stringify({ box: "inbox", maxCount: 500 });
+    const filter = JSON.stringify({
+      box: "inbox",
+      maxCount: 200,
+      minDate: Date.now() - THREE_DAYS_MS,
+    });
     SmsAndroid.list(
       filter,
       (error: string) => reject(new Error(error)),
       (_count: number, smsList: string) => {
         try {
-          const smsListParsed = JSON.parse(smsList) as RawSms[];
-          smsListParsed.forEach((sms) => {
-            console.log(
-              "SMS address:",
-              sms.address,
-              "| body:",
-              sms.body.slice(0, 60),
-            );
-          });
-          resolve(smsListParsed);
+          resolve(JSON.parse(smsList) as RawSms[]);
         } catch {
           resolve([]);
         }
@@ -386,7 +389,6 @@ export default function SmsScreen() {
     );
   }
 
-  // First-ever open: show full-screen loader until we have data
   if (syncStatus === "syncing" && allParsed.length === 0) {
     return (
       <View className="flex-1 bg-white">
@@ -420,7 +422,8 @@ export default function SmsScreen() {
       <View className="px-5 pt-3 pb-3 bg-white border-b border-gray-100">
         <View className="flex-row items-center justify-between mb-3">
           <Text className="text-sm font-medium text-gray-500">
-            {filtered.length} message{filtered.length !== 1 ? "s" : ""}
+            {filtered.length} message{filtered.length !== 1 ? "s" : ""}{" "}
+            <Text className="text-gray-400">(last 3 days)</Text>
           </Text>
           <TouchableOpacity onPress={() => loadAndSync(false)}>
             <Ionicons name="refresh-outline" size={22} color="#1152D4" />
@@ -470,10 +473,10 @@ export default function SmsScreen() {
           <View className="items-center justify-center py-16">
             <Ionicons name="chatbubble-outline" size={48} color="#D1D5DB" />
             <Text className="mt-3 text-base text-gray-400">
-              No bank SMS found
+              No bank SMS in the last 3 days
             </Text>
             <Text className="mt-1 text-sm text-center text-gray-400">
-              Make sure you receive SMS notifications from your bank.
+              New messages from your bank will appear here automatically.
             </Text>
           </View>
         }

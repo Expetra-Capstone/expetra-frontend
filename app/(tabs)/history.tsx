@@ -1,36 +1,105 @@
 import TransactionList from "@/components/TransactionList";
 import { useAuth } from "@/context/AuthContext";
 import { getTransactions, Transaction } from "@/services/apiService";
+import { RawSms } from "@/services/smsParser";
+import {
+  forceFullSync,
+  isForceSyncDone,
+  runInitialSync,
+  SyncProgress,
+} from "@/services/smsSync";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
+  PermissionsAndroid,
+  Platform,
   RefreshControl,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import SmsAndroid from "react-native-get-sms-android";
 
-// ─── Derive unique bank names from beneficiary_bank field ─────────────────────
+// ─── 3-day window ─────────────────────────────────────────────────────────────
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+// ─── Read inbox (last 3 days) ─────────────────────────────────────────────────
+function readSmsInbox(): Promise<RawSms[]> {
+  return new Promise((resolve) => {
+    const filter = JSON.stringify({
+      box: "inbox",
+      maxCount: 200,
+      minDate: Date.now() - THREE_DAYS_MS,
+    });
+    SmsAndroid.list(
+      filter,
+      () => resolve([]),
+      (_count: number, smsList: string) => {
+        try {
+          resolve(JSON.parse(smsList) as RawSms[]);
+        } catch {
+          resolve([]);
+        }
+      },
+    );
+  });
+}
+
+// ─── Silent sync + fetch ──────────────────────────────────────────────────────
+async function syncAndFetch(token: string): Promise<Transaction[]> {
+  if (Platform.OS === "android") {
+    try {
+      const granted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+      );
+      if (granted) {
+        const raw = await readSmsInbox();
+        await runInitialSync(token, raw);
+      }
+    } catch {
+      // SMS sync failure never blocks the transaction list
+    }
+  }
+
+  const result = await getTransactions(token);
+  if (result.error) throw new Error(result.error);
+
+  return [...result.data].sort(
+    (a, b) =>
+      new Date(b.transaction_time).getTime() -
+      new Date(a.transaction_time).getTime(),
+  );
+}
+
+// ─── Filter helpers ───────────────────────────────────────────────────────────
+
+function formatTypeLabel(type: string): string {
+  if (type === "sms") return "SMS";
+  if (type === "screenshot") return "Screenshot";
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function buildBankOptions(
   transactions: Transaction[],
 ): { id: string; name: string }[] {
-  const banks = [
-    ...new Set(
-      transactions
-        .map((t) => t.beneficiary_bank)
-        .filter((b): b is string => !!b),
-    ),
-  ];
+  const bankSet = new Set<string>();
+  transactions.forEach((t) => {
+    if (t.beneficiary_bank?.trim()) bankSet.add(t.beneficiary_bank.trim());
+    if (t.transaction_type === "sms" && t.sender_name?.trim()) {
+      bankSet.add(t.sender_name.trim());
+    }
+  });
   return [
     { id: "all", name: "All Banks" },
-    ...banks.map((b) => ({ id: b.toLowerCase(), name: b })),
+    ...[...bankSet].sort().map((b) => ({ id: b.toLowerCase(), name: b })),
   ];
 }
 
-// ─── Derive unique transaction types ─────────────────────────────────────────
 function buildTypeOptions(
   transactions: Transaction[],
 ): { id: string; name: string }[] {
@@ -43,12 +112,11 @@ function buildTypeOptions(
   ];
   return [
     { id: "all", name: "All Types" },
-    ...types.map((t) => ({
-      id: t.toLowerCase(),
-      name: t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-    })),
+    ...types.map((t) => ({ id: t.toLowerCase(), name: formatTypeLabel(t) })),
   ];
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 const History = () => {
   const { token } = useAuth();
@@ -63,32 +131,49 @@ const History = () => {
   const [isBankDropdownVisible, setIsBankDropdownVisible] = useState(false);
   const [isTypeDropdownVisible, setIsTypeDropdownVisible] = useState(false);
 
-  // ─── Fetch ──────────────────────────────────────────────────────────────────
-  const fetchTransactions = useCallback(
-    async (isRefresh = false) => {
-      if (isRefresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setFetchError(null);
+  // ── Force-extract state ────────────────────────────────────────────────────
+  // forceDone: read from AsyncStorage on mount — button is hidden on iOS or
+  // when SMS permission hasn't been granted yet.
+  const [forceDone, setForceDone] = useState(true); // start true to avoid flash
+  const [isForcing, setIsForcing] = useState(false);
+  const [forceProgress, setForceProgress] = useState<SyncProgress | null>(null);
+  const [showSmsButton, setShowSmsButton] = useState(false);
 
+  // ── Check on mount whether the force sync has already been done ───────────
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    async function checkForceAndPermission() {
+      const [done, granted] = await Promise.all([
+        isForceSyncDone(),
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS),
+      ]);
+      setForceDone(done);
+      setShowSmsButton(granted); // only show button if SMS permission exists
+    }
+
+    checkForceAndPermission();
+  }, []);
+
+  // ─── Load ──────────────────────────────────────────────────────────────────
+  const load = useCallback(
+    async (isRefresh = false) => {
       if (!token) {
         setFetchError("You must be logged in to view transactions.");
         setIsLoading(false);
-        setIsRefreshing(false);
         return;
       }
+      if (isRefresh) setIsRefreshing(true);
+      else setIsLoading(true);
+      setFetchError(null);
 
       try {
-        const result = await getTransactions(token);
-        if (result.error) {
-          setFetchError(result.error);
-        } else {
-          setTransactions(result.data);
-        }
-      } catch {
-        setFetchError("Network error. Please check your connection.");
+        const data = await syncAndFetch(token);
+        setTransactions(data);
+      } catch (e) {
+        setFetchError(
+          e instanceof Error ? e.message : "Network error. Please try again.",
+        );
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -97,11 +182,59 @@ const History = () => {
     [token],
   );
 
-  useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
-  // ─── Filter options derived from live data ──────────────────────────────────
+  // ─── Force-extract handler ─────────────────────────────────────────────────
+  const handleForceExtract = useCallback(async () => {
+    if (!token) return;
+
+    Alert.alert(
+      "Extract All SMS",
+      "This will re-upload every bank SMS from the last 3 days, including ones already uploaded. This action can only be done once. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Extract All",
+          style: "destructive",
+          onPress: async () => {
+            setIsForcing(true);
+            setForceProgress(null);
+
+            try {
+              const raw = await readSmsInbox();
+              const progress = await forceFullSync(token, raw, (p) =>
+                setForceProgress({ ...p }),
+              );
+
+              setForceDone(true);
+
+              // Reload the transaction list to show newly uploaded entries
+              const data = await syncAndFetch(token);
+              setTransactions(data);
+
+              Alert.alert(
+                "Done",
+                `${progress.success} transaction${progress.success !== 1 ? "s" : ""} extracted.${
+                  progress.failed > 0 ? ` ${progress.failed} failed.` : ""
+                }`,
+              );
+            } catch {
+              Alert.alert("Error", "Extraction failed. Please try again.");
+            } finally {
+              setIsForcing(false);
+              setForceProgress(null);
+            }
+          },
+        },
+      ],
+    );
+  }, [token]);
+
+  // ─── Filters ──────────────────────────────────────────────────────────────
   const bankOptions = useMemo(
     () => buildBankOptions(transactions),
     [transactions],
@@ -111,14 +244,15 @@ const History = () => {
     [transactions],
   );
 
-  // ─── Filtered list ──────────────────────────────────────────────────────────
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
 
     if (selectedBank !== "all") {
-      filtered = filtered.filter(
-        (t) => (t.beneficiary_bank ?? "").toLowerCase() === selectedBank,
-      );
+      filtered = filtered.filter((t) => {
+        const bank = (t.beneficiary_bank ?? "").toLowerCase();
+        const sender = (t.sender_name ?? "").toLowerCase();
+        return bank === selectedBank || sender === selectedBank;
+      });
     }
 
     if (selectedType !== "all") {
@@ -135,7 +269,7 @@ const History = () => {
   const currentTypeLabel =
     typeOptions.find((t) => t.id === selectedType)?.name ?? "All Types";
 
-  // ─── Loading state ──────────────────────────────────────────────────────────
+  // ─── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <View className="items-center justify-center flex-1 bg-white">
@@ -147,7 +281,7 @@ const History = () => {
     );
   }
 
-  // ─── Error state ────────────────────────────────────────────────────────────
+  // ─── Error ─────────────────────────────────────────────────────────────────
   if (fetchError) {
     return (
       <View className="items-center justify-center flex-1 px-8 bg-white">
@@ -157,7 +291,7 @@ const History = () => {
         </Text>
         <TouchableOpacity
           className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
-          onPress={() => fetchTransactions()}
+          onPress={() => load()}
         >
           <Text className="font-semibold text-white">Retry</Text>
         </TouchableOpacity>
@@ -174,7 +308,7 @@ const History = () => {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={() => fetchTransactions(true)}
+            onRefresh={() => load(true)}
             colors={["#1152D4"]}
             tintColor="#1152D4"
           />
@@ -184,7 +318,6 @@ const History = () => {
         <View className="pt-4 pb-3 bg-white">
           <View className="px-5 mb-4">
             <View className="flex-row">
-              {/* Bank Dropdown Trigger */}
               <TouchableOpacity
                 onPress={() => setIsBankDropdownVisible(true)}
                 className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
@@ -201,7 +334,6 @@ const History = () => {
                 <Ionicons name="chevron-down" size={18} color="#666" />
               </TouchableOpacity>
 
-              {/* Type Dropdown Trigger */}
               <TouchableOpacity
                 onPress={() => setIsTypeDropdownVisible(true)}
                 className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
@@ -323,6 +455,52 @@ const History = () => {
           </TouchableOpacity>
         </Modal>
 
+        {/* ── Force Extract Button ── */}
+        {showSmsButton && (
+          <View className="px-5 pb-4">
+            <TouchableOpacity
+              onPress={handleForceExtract}
+              disabled={forceDone || isForcing}
+              className={`flex-row items-center justify-center py-3 rounded-2xl border-2 ${
+                forceDone
+                  ? "bg-gray-100 border-gray-200"
+                  : isForcing
+                    ? "bg-blue-50 border-blue-200"
+                    : "bg-white border-blue-600"
+              }`}
+            >
+              {isForcing ? (
+                <>
+                  <ActivityIndicator size="small" color="#1152D4" />
+                  <Text className="ml-2 text-sm font-semibold text-blue-600">
+                    {forceProgress
+                      ? `Extracting… ${forceProgress.processed} / ${forceProgress.total}`
+                      : "Reading inbox…"}
+                  </Text>
+                </>
+              ) : forceDone ? (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#9CA3AF" />
+                  <Text className="ml-2 text-sm font-semibold text-gray-400">
+                    All SMS Extracted
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons
+                    name="cloud-upload-outline"
+                    size={18}
+                    color="#1152D4"
+                  />
+                  <Text className="ml-2 text-sm font-semibold text-blue-600">
+                    Extract All SMS
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Transaction List ── */}
         <View className="px-5 pb-24">
           <View className="flex-row items-center justify-between mb-4">
@@ -335,7 +513,7 @@ const History = () => {
           </View>
 
           <TransactionList
-            transactions={filteredTransactions.reverse()}
+            transactions={filteredTransactions}
             emptyMessage="No transactions found for the selected filters"
           />
         </View>
