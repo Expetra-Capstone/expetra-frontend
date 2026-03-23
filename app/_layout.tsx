@@ -2,13 +2,40 @@
 
 import { ONBOARDING_STORAGE_KEY } from "@/constants/onboarding";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { startSmsListener } from "@/services/smsSync";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack } from "expo-router";
 import { useEffect, useState } from "react";
-import { StatusBar, View } from "react-native";
+import { PermissionsAndroid, Platform, StatusBar, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import "./global.css";
+
+function GlobalSmsListener() {
+  const { token } = useAuth();
+
+  useEffect(() => {
+    if (Platform.OS !== "android" || !token) return;
+
+    let cleanup: (() => void) | null = null;
+
+    async function init() {
+      const granted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+      );
+      if (!granted) return;
+      cleanup = startSmsListener(token, () => {});
+    }
+
+    init();
+
+    return () => {
+      cleanup?.();
+    };
+  }, [token]);
+
+  return null;
+}
 
 // ─── INNER NAVIGATOR ──────────────────────────────────────────────────────────
 // Must live inside <AuthProvider> so it can safely call useAuth().
@@ -29,12 +56,6 @@ function AppNavigator({ hasOnboarded }: { hasOnboarded: boolean }) {
         contentStyle: { backgroundColor: "transparent" },
       }}
     >
-      {/* 
-        Stack.Protected completely blocks access to guarded screens.
-        If a user attempts direct navigation to a blocked screen,
-        the router falls back to the first available unguarded screen.
-      */}
-
       {/* Onboarding — only accessible before the user has completed it */}
       <Stack.Protected guard={!hasOnboarded}>
         <Stack.Screen name="(onboarding)" options={{ gestureEnabled: false }} />
@@ -81,6 +102,7 @@ export default function RootLayout() {
         {/* AuthProvider wraps AppNavigator so useAuth works inside it */}
         <AuthProvider>
           <View className="flex-1">
+            <GlobalSmsListener />
             <AppNavigator hasOnboarded={hasOnboarded} />
           </View>
         </AuthProvider>
