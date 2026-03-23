@@ -1,70 +1,133 @@
 import TransactionList from "@/components/TransactionList";
-import { allTransactions, categories, dateRangeOptions } from "@/data/home";
-import { Category } from "@/types/home";
+import { useAuth } from "@/context/AuthContext";
+import { getTransactions, Transaction } from "@/services/apiService";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   ImageBackground,
   Modal,
+  RefreshControl,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 
+const DATE_RANGE_OPTIONS = [
+  { id: "all", label: "All time" },
+  { id: "7", label: "7 days" },
+  { id: "30", label: "30 days" },
+  { id: "90", label: "90 days" },
+];
+
+function isWithinDays(isoDate: string, days: number): boolean {
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return new Date(isoDate) >= cutoff;
+  } catch {
+    return true;
+  }
+}
+
+function buildBankCategories(
+  transactions: Transaction[],
+): { id: string; name: string }[] {
+  const banks = [
+    ...new Set(
+      transactions
+        .map((t) => t.beneficiary_bank)
+        .filter((b): b is string => !!b),
+    ),
+  ];
+  return [
+    { id: "all", name: "All" },
+    ...banks.map((b) => ({ id: b.toLowerCase(), name: b })),
+  ];
+}
+
 export default function HomePage() {
-  // State management
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [filteredTransactions, setFilteredTransactions] =
-    useState(allTransactions);
-  const [isDataVisible, setIsDataVisible] = useState(true);
-  const [selectedDateRange, setSelectedDateRange] = useState("all");
+  const { token, user } = useAuth();
+
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDataVisible, setIsDataVisible] = useState(false);
+  const [selectedBank, setSelectedBank] = useState("all");
+  const [selectedDateRange, setSelectedDateRange] = useState("all"); // ← was "7"
   const [isDateDropdownVisible, setIsDateDropdownVisible] = useState(false);
 
-  // Filter handler
-  const handleCategoryPress = (categoryId: string) => {
-    setSelectedCategory(categoryId);
+  const fetchTransactions = useCallback(
+    async (isRefresh = false) => {
+      if (!token) return;
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        const result = await getTransactions(token);
+        if (!result.error) {
+          const sorted = [...result.data].sort(
+            (a, b) =>
+              new Date(b.transaction_time).getTime() -
+              new Date(a.transaction_time).getTime(),
+          );
+          setTransactions(sorted);
+        }
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [token],
+  );
 
-    if (categoryId === "all") {
-      setFilteredTransactions(allTransactions);
-    } else {
-      const filtered = allTransactions.filter(
-        (transaction) =>
-          transaction.bank.toLowerCase() === categoryId.toLowerCase(),
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  const bankCategories = useMemo(
+    () => buildBankCategories(transactions),
+    [transactions],
+  );
+
+  const filteredTransactions = useMemo(() => {
+    let result = transactions;
+
+    if (selectedDateRange !== "all") {
+      result = result.filter((t) =>
+        isWithinDays(t.transaction_time, Number(selectedDateRange)),
       );
-      setFilteredTransactions(filtered);
     }
-  };
 
-  // Date range selector handler
-  const handleDateRangeSelect = (rangeId: string) => {
-    setSelectedDateRange(rangeId);
-    setIsDateDropdownVisible(false);
-  };
+    if (selectedBank !== "all") {
+      result = result.filter(
+        (t) => (t.beneficiary_bank ?? "").toLowerCase() === selectedBank,
+      );
+    }
 
-  const displayBalance = isDataVisible ? "24,892.00" : "******";
-  const displayPhone = isDataVisible ? "+251 911 781 912" : "+251 911 *** *12";
+    return result.slice(0, 5);
+  }, [transactions, selectedBank, selectedDateRange]);
 
-  const getCurrentDateLabel = () => {
-    return (
-      dateRangeOptions.find((opt) => opt.id === selectedDateRange)?.label ||
-      "7 days"
-    );
-  };
+  const displayBalance = isDataVisible ? "24,892.00" : "********";
 
-  const renderCategory = ({ item }: { item: Category }) => (
+  const rawPhone = user?.phone ?? "";
+  const displayPhone = isDataVisible
+    ? rawPhone
+    : rawPhone.replace(/(\+?\d{4})\d+(\d{3})/, "$1 *** $2");
+
+  const currentDateLabel =
+    DATE_RANGE_OPTIONS.find((o) => o.id === selectedDateRange)?.label ??
+    "All time";
+
+  const renderCategory = ({ item }: { item: { id: string; name: string } }) => (
     <TouchableOpacity
-      onPress={() => handleCategoryPress(item.id)}
+      onPress={() => setSelectedBank(item.id)}
       className={`mr-2 px-5 py-2 rounded-full border ${
-        selectedCategory === item.id
+        selectedBank === item.id
           ? "bg-blue-600 border-blue-600"
           : "bg-white border-gray-300"
       }`}
     >
       <Text
         className={`text-sm font-medium ${
-          selectedCategory === item.id ? "text-white" : "text-black"
+          selectedBank === item.id ? "text-white" : "text-black"
         }`}
       >
         {item.name}
@@ -76,8 +139,16 @@ export default function HomePage() {
     <ScrollView
       className="flex-1 bg-white"
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={() => fetchTransactions(true)}
+          colors={["#1152D4"]}
+          tintColor="#1152D4"
+        />
+      }
     >
-      {/* Balance Card - keeping existing code */}
+      {/* ── Balance Card ── */}
       <View className="px-5 pt-3 pb-6">
         <View
           className="overflow-hidden rounded-3xl"
@@ -105,7 +176,7 @@ export default function HomePage() {
                   className="flex-row items-center px-4 py-2 rounded-full bg-white/25"
                 >
                   <Text className="mr-1 text-sm font-medium text-white">
-                    {getCurrentDateLabel()}
+                    {currentDateLabel}
                   </Text>
                   <Ionicons name="chevron-down" size={14} color="#FFFFFF" />
                 </TouchableOpacity>
@@ -126,15 +197,12 @@ export default function HomePage() {
                       style={{ left: 18 }}
                     />
                   </View>
-
                   <Text className="text-base font-normal tracking-wide text-white">
                     {displayPhone}
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  onPress={() => setIsDataVisible(!isDataVisible)}
-                >
+                <TouchableOpacity onPress={() => setIsDataVisible((v) => !v)}>
                   <Ionicons
                     name={isDataVisible ? "eye-outline" : "eye-off-outline"}
                     size={22}
@@ -147,10 +215,10 @@ export default function HomePage() {
         </View>
       </View>
 
-      {/* Date Range Modal - keeping existing code */}
+      {/* ── Date Range Modal ── */}
       <Modal
         visible={isDateDropdownVisible}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setIsDateDropdownVisible(false)}
       >
@@ -165,10 +233,13 @@ export default function HomePage() {
                 Select Date Range
               </Text>
             </View>
-            {dateRangeOptions.map((option) => (
+            {DATE_RANGE_OPTIONS.map((option) => (
               <TouchableOpacity
                 key={option.id}
-                onPress={() => handleDateRangeSelect(option.id)}
+                onPress={() => {
+                  setSelectedDateRange(option.id);
+                  setIsDateDropdownVisible(false);
+                }}
                 className={`p-4 border-b border-gray-100 ${
                   selectedDateRange === option.id ? "bg-blue-50" : ""
                 }`}
@@ -188,16 +259,16 @@ export default function HomePage() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Recent Transaction Section */}
+      {/* ── Recent Transactions ── */}
       <View className="px-4 pb-24">
         <Text className="mb-4 text-2xl font-bold text-black">
           Recent Transaction
         </Text>
 
-        {/* Category Pills */}
+        {/* Bank filter pills */}
         <FlatList
           horizontal
-          data={categories}
+          data={bankCategories}
           renderItem={renderCategory}
           keyExtractor={(item) => item.id}
           showsHorizontalScrollIndicator={false}
@@ -205,12 +276,8 @@ export default function HomePage() {
           contentContainerStyle={{ paddingRight: 20 }}
         />
 
-        {/* Use the new TransactionList component */}
-        {/* Use the new TransactionList component */}
         <TransactionList
-          transactions={[...filteredTransactions]
-            .slice(-5) // take last 5
-            .reverse()} // newest at the top (optional)
+          transactions={filteredTransactions}
           emptyMessage="No transactions found for this filter"
         />
       </View>

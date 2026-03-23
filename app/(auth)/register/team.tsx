@@ -1,6 +1,6 @@
 import AuthInput from "@/components/auth/AuthInput";
 import GoogleButton from "@/components/auth/GoogleButton";
-import { useAuth } from "@/context/AuthContext";
+import { RegisterEmployeeData, useAuth } from "@/context/AuthContext";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -27,6 +27,7 @@ const BackIcon: React.FC = () => (
   </Svg>
 );
 
+// ─── VALIDATION ───────────────────────────────────────────────────────────────
 interface TeamErrors {
   inviteId?: string;
   name?: string;
@@ -54,8 +55,10 @@ const validate = (
   return e;
 };
 
+// ─── SCREEN ───────────────────────────────────────────────────────────────────
 export default function RegisterTeam() {
-  const { register } = useAuth();
+  const { registerEmployee } = useAuth();
+
   const [inviteId, setInviteId] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -70,13 +73,15 @@ export default function RegisterTeam() {
     if (Object.keys(errs).length > 0) return;
 
     setLoading(true);
-    const result = await register({
+    const data: RegisterEmployeeData = {
       accountType: "team",
       name,
       phone,
       password,
       inviteId,
-    });
+    };
+
+    const result = await registerEmployee(data);
     setLoading(false);
 
     if (!result.success) {
@@ -104,15 +109,15 @@ export default function RegisterTeam() {
         </View>
 
         <Text className="text-[32px] font-extrabold text-gray-900 leading-tight">
-          Register Company
+          Join a Team
         </Text>
         <Text className="text-gray-500 mt-1 mb-8 text-[15px]">
-          Please enter your details to register.
+          Enter your Invite ID and details to join your company.
         </Text>
 
         <AuthInput
           label="Invite ID"
-          placeholder="EXPETRA-TEAM-001"
+          placeholder="834221"
           value={inviteId}
           onChangeText={setInviteId}
           autoCapitalize="characters"
@@ -120,7 +125,7 @@ export default function RegisterTeam() {
         />
         <AuthInput
           label="Name"
-          placeholder="Spongebob"
+          placeholder="John Doe"
           value={name}
           onChangeText={setName}
           autoCapitalize="words"
@@ -128,7 +133,7 @@ export default function RegisterTeam() {
         />
         <AuthInput
           label="Phone Number"
-          placeholder="0909090909"
+          placeholder="0911888777"
           value={phone}
           onChangeText={setPhone}
           keyboardType="phone-pad"

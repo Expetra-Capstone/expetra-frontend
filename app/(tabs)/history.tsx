@@ -1,88 +1,169 @@
 import TransactionList from "@/components/TransactionList";
-import { allTransactions, categories } from "@/data/home";
-import { FilterState, StatusOption } from "@/types/history";
-import { Category } from "@/types/home";
+import { useAuth } from "@/context/AuthContext";
+import { getTransactions, Transaction } from "@/services/apiService";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
-import { Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+// ─── Derive unique bank names from beneficiary_bank field ─────────────────────
+function buildBankOptions(
+  transactions: Transaction[],
+): { id: string; name: string }[] {
+  const banks = [
+    ...new Set(
+      transactions
+        .map((t) => t.beneficiary_bank)
+        .filter((b): b is string => !!b),
+    ),
+  ];
+  return [
+    { id: "all", name: "All Banks" },
+    ...banks.map((b) => ({ id: b.toLowerCase(), name: b })),
+  ];
+}
+
+// ─── Derive unique transaction types ─────────────────────────────────────────
+function buildTypeOptions(
+  transactions: Transaction[],
+): { id: string; name: string }[] {
+  const types = [
+    ...new Set(
+      transactions
+        .map((t) => t.transaction_type)
+        .filter((t): t is string => !!t),
+    ),
+  ];
+  return [
+    { id: "all", name: "All Types" },
+    ...types.map((t) => ({
+      id: t.toLowerCase(),
+      name: t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    })),
+  ];
+}
 
 const History = () => {
-  const [selectedCategory, setSelectedCategory] =
-    useState<FilterState["selectedCategory"]>("all");
-  const [selectedStatus, setSelectedStatus] =
-    useState<FilterState["selectedStatus"]>("all");
-  const [selectedFilter] = useState<FilterState["selectedFilter"]>("all");
-  const [isBankDropdownVisible, setIsBankDropdownVisible] =
-    useState<boolean>(false);
-  const [isStatusDropdownVisible, setIsStatusDropdownVisible] =
-    useState<boolean>(false);
+  const { token } = useAuth();
 
-  // Get unique statuses from transactions
-  const statusOptions = useMemo<StatusOption[]>(() => {
-    const statuses = [...new Set(allTransactions.map((t) => t.status))];
-    return [
-      { id: "all", name: "All Status" },
-      ...statuses.map((s) => ({ id: s.toLowerCase(), name: s })),
-    ];
-  }, []);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Filter transactions based on category, status, and type
+  const [selectedBank, setSelectedBank] = useState("all");
+  const [selectedType, setSelectedType] = useState("all");
+  const [isBankDropdownVisible, setIsBankDropdownVisible] = useState(false);
+  const [isTypeDropdownVisible, setIsTypeDropdownVisible] = useState(false);
+
+  // ─── Fetch ──────────────────────────────────────────────────────────────────
+  const fetchTransactions = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setFetchError(null);
+
+      if (!token) {
+        setFetchError("You must be logged in to view transactions.");
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      try {
+        const result = await getTransactions(token);
+        if (result.error) {
+          setFetchError(result.error);
+        } else {
+          setTransactions(result.data);
+        }
+      } catch {
+        setFetchError("Network error. Please check your connection.");
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [token],
+  );
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  // ─── Filter options derived from live data ──────────────────────────────────
+  const bankOptions = useMemo(
+    () => buildBankOptions(transactions),
+    [transactions],
+  );
+  const typeOptions = useMemo(
+    () => buildTypeOptions(transactions),
+    [transactions],
+  );
+
+  // ─── Filtered list ──────────────────────────────────────────────────────────
   const filteredTransactions = useMemo(() => {
-    let filtered = allTransactions;
+    let filtered = transactions;
 
-    if (selectedCategory !== "all") {
+    if (selectedBank !== "all") {
       filtered = filtered.filter(
-        (transaction) =>
-          transaction.bank.toLowerCase() === selectedCategory.toLowerCase(),
+        (t) => (t.beneficiary_bank ?? "").toLowerCase() === selectedBank,
       );
     }
 
-    if (selectedStatus !== "all") {
+    if (selectedType !== "all") {
       filtered = filtered.filter(
-        (transaction) =>
-          transaction.status.toLowerCase() === selectedStatus.toLowerCase(),
-      );
-    }
-
-    if (selectedFilter === "deposits") {
-      filtered = filtered.filter(
-        (transaction) => transaction.type === "deposit",
-      );
-    } else if (selectedFilter === "withdrawals") {
-      filtered = filtered.filter(
-        (transaction) => transaction.type === "withdrawal",
+        (t) => (t.transaction_type ?? "").toLowerCase() === selectedType,
       );
     }
 
     return filtered;
-  }, [selectedCategory, selectedStatus, selectedFilter]);
+  }, [transactions, selectedBank, selectedType]);
 
-  // Filter handlers
-  const handleCategorySelect = (categoryId: string): void => {
-    setSelectedCategory(categoryId);
-    setIsBankDropdownVisible(false);
-  };
+  const currentBankLabel =
+    bankOptions.find((b) => b.id === selectedBank)?.name ?? "All Banks";
+  const currentTypeLabel =
+    typeOptions.find((t) => t.id === selectedType)?.name ?? "All Types";
 
-  const handleStatusSelect = (statusId: string): void => {
-    setSelectedStatus(statusId);
-    setIsStatusDropdownVisible(false);
-  };
-
-  // Get current selected bank name
-  const getCurrentBankLabel = (): string => {
-    const selected: Category | undefined = categories.find(
-      (cat) => cat.id === selectedCategory,
+  // ─── Loading state ──────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <View className="items-center justify-center flex-1 bg-white">
+        <ActivityIndicator size="large" color="#1152D4" />
+        <Text className="mt-3 text-sm text-gray-500">
+          Loading transactions…
+        </Text>
+      </View>
     );
-    return selected ? selected.name : "All Banks";
-  };
+  }
 
-  // Get current selected status name
-  const getCurrentStatusLabel = (): string => {
-    const selected: StatusOption | undefined = statusOptions.find(
-      (opt) => opt.id === selectedStatus,
+  // ─── Error state ────────────────────────────────────────────────────────────
+  if (fetchError) {
+    return (
+      <View className="items-center justify-center flex-1 px-8 bg-white">
+        <Ionicons name="cloud-offline-outline" size={48} color="#9CA3AF" />
+        <Text className="mt-3 text-base font-semibold text-center text-gray-700">
+          {fetchError}
+        </Text>
+        <TouchableOpacity
+          className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
+          onPress={() => fetchTransactions()}
+        >
+          <Text className="font-semibold text-white">Retry</Text>
+        </TouchableOpacity>
+      </View>
     );
-    return selected ? selected.name : "All Status";
-  };
+  }
 
   return (
     <View className="flex-1 bg-white">
@@ -90,13 +171,20 @@ const History = () => {
         className="flex-1"
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={[0]}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => fetchTransactions(true)}
+            colors={["#1152D4"]}
+            tintColor="#1152D4"
+          />
+        }
       >
-        {/* Header */}
+        {/* ── Sticky Filter Header ── */}
         <View className="pt-4 pb-3 bg-white">
-          {/* Dropdown Filters Row */}
           <View className="px-5 mb-4">
             <View className="flex-row">
-              {/* Bank Dropdown */}
+              {/* Bank Dropdown Trigger */}
               <TouchableOpacity
                 onPress={() => setIsBankDropdownVisible(true)}
                 className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
@@ -107,20 +195,20 @@ const History = () => {
                     className="flex-1 ml-2 text-sm font-medium text-gray-700"
                     numberOfLines={1}
                   >
-                    {getCurrentBankLabel()}
+                    {currentBankLabel}
                   </Text>
                 </View>
                 <Ionicons name="chevron-down" size={18} color="#666" />
               </TouchableOpacity>
 
-              {/* Status Dropdown */}
+              {/* Type Dropdown Trigger */}
               <TouchableOpacity
-                onPress={() => setIsStatusDropdownVisible(true)}
+                onPress={() => setIsTypeDropdownVisible(true)}
                 className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
               >
                 <View className="flex-row items-center flex-1">
                   <Ionicons
-                    name="checkmark-circle-outline"
+                    name="swap-horizontal-outline"
                     size={18}
                     color="#666"
                   />
@@ -128,7 +216,7 @@ const History = () => {
                     className="flex-1 ml-2 text-sm font-medium text-gray-700"
                     numberOfLines={1}
                   >
-                    {getCurrentStatusLabel()}
+                    {currentTypeLabel}
                   </Text>
                 </View>
                 <Ionicons name="chevron-down" size={18} color="#666" />
@@ -137,10 +225,10 @@ const History = () => {
           </View>
         </View>
 
-        {/* Bank Dropdown Modal */}
+        {/* ── Bank Dropdown Modal ── */}
         <Modal
           visible={isBankDropdownVisible}
-          transparent={true}
+          transparent
           animationType="fade"
           onRequestClose={() => setIsBankDropdownVisible(false)}
         >
@@ -152,28 +240,31 @@ const History = () => {
             <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
               <View className="p-4 border-b border-gray-200">
                 <Text className="text-lg font-semibold text-center">
-                  Select Bank
+                  Filter by Bank
                 </Text>
               </View>
               <ScrollView className="max-h-96">
-                {categories.map((option: Category) => (
+                {bankOptions.map((option) => (
                   <TouchableOpacity
                     key={option.id}
-                    onPress={() => handleCategorySelect(option.id)}
+                    onPress={() => {
+                      setSelectedBank(option.id);
+                      setIsBankDropdownVisible(false);
+                    }}
                     className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedCategory === option.id ? "bg-blue-50" : ""
+                      selectedBank === option.id ? "bg-blue-50" : ""
                     }`}
                   >
                     <Text
                       className={`text-base ${
-                        selectedCategory === option.id
+                        selectedBank === option.id
                           ? "text-blue-600 font-semibold"
                           : "text-gray-700"
                       }`}
                     >
                       {option.name}
                     </Text>
-                    {selectedCategory === option.id && (
+                    {selectedBank === option.id && (
                       <Ionicons name="checkmark" size={20} color="#1152D4" />
                     )}
                   </TouchableOpacity>
@@ -183,43 +274,46 @@ const History = () => {
           </TouchableOpacity>
         </Modal>
 
-        {/* Status Dropdown Modal */}
+        {/* ── Type Dropdown Modal ── */}
         <Modal
-          visible={isStatusDropdownVisible}
-          transparent={true}
+          visible={isTypeDropdownVisible}
+          transparent
           animationType="fade"
-          onRequestClose={() => setIsStatusDropdownVisible(false)}
+          onRequestClose={() => setIsTypeDropdownVisible(false)}
         >
           <TouchableOpacity
             className="items-center justify-center flex-1 bg-black/50"
             activeOpacity={1}
-            onPress={() => setIsStatusDropdownVisible(false)}
+            onPress={() => setIsTypeDropdownVisible(false)}
           >
             <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
               <View className="p-4 border-b border-gray-200">
                 <Text className="text-lg font-semibold text-center">
-                  Select Status
+                  Filter by Type
                 </Text>
               </View>
               <ScrollView className="max-h-96">
-                {statusOptions.map((option: StatusOption) => (
+                {typeOptions.map((option) => (
                   <TouchableOpacity
                     key={option.id}
-                    onPress={() => handleStatusSelect(option.id)}
+                    onPress={() => {
+                      setSelectedType(option.id);
+                      setIsTypeDropdownVisible(false);
+                    }}
                     className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedStatus === option.id ? "bg-blue-50" : ""
+                      selectedType === option.id ? "bg-blue-50" : ""
                     }`}
                   >
                     <Text
                       className={`text-base ${
-                        selectedStatus === option.id
+                        selectedType === option.id
                           ? "text-blue-600 font-semibold"
                           : "text-gray-700"
                       }`}
                     >
                       {option.name}
                     </Text>
-                    {selectedStatus === option.id && (
+                    {selectedType === option.id && (
                       <Ionicons name="checkmark" size={20} color="#1152D4" />
                     )}
                   </TouchableOpacity>
@@ -229,7 +323,7 @@ const History = () => {
           </TouchableOpacity>
         </Modal>
 
-        {/* Transaction List */}
+        {/* ── Transaction List ── */}
         <View className="px-5 pb-24">
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-lg font-bold text-black">
@@ -241,7 +335,7 @@ const History = () => {
           </View>
 
           <TransactionList
-            transactions={filteredTransactions}
+            transactions={filteredTransactions.reverse()}
             emptyMessage="No transactions found for the selected filters"
           />
         </View>

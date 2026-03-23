@@ -1,3 +1,5 @@
+// app/index.tsx
+
 import { ONBOARDING_STORAGE_KEY } from "@/constants/onboarding";
 import { useAuth } from "@/context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";

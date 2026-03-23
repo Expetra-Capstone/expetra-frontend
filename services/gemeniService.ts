@@ -8,6 +8,36 @@ export class RateLimitError extends Error {
   }
 }
 
+// ─── Map any Gemini output → backend-safe enum value ─────────────────────────
+// Note: camera.tsx overrides transaction_type to "screenshot" after extraction,
+// so this map is a safety net for any unexpected Gemini output.
+const TYPE_MAP: Record<string, string> = {
+  screenshot: "screenshot",
+  sms: "sms",
+  receipt: "receipt",
+  invoice: "invoice",
+  other: "other",
+  bank_transfer: "other",
+  transfer: "other",
+  "transfer money": "other",
+  payment: "other",
+  deposit: "other",
+  withdrawal: "other",
+  debit: "other",
+  credit: "other",
+};
+
+function toSafeType(raw: unknown): string {
+  if (!raw || typeof raw !== "string") return "other";
+  return TYPE_MAP[raw.toLowerCase().trim()] ?? "other";
+}
+
+function toSafeAmount(raw: unknown): number {
+  if (typeof raw === "number") return isNaN(raw) ? 0 : raw;
+  const n = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
 export class GeminiService {
   private static instance: GeminiService;
   private apiKey: string;
@@ -91,7 +121,6 @@ export class GeminiService {
 
         if (response.status === 429) {
           if (attempt < retries) {
-            console.warn(`Rate limited on attempt ${attempt}, retrying in 2s…`);
             await new Promise((r) => setTimeout(r, 2000 * attempt));
             continue;
           }
@@ -100,9 +129,6 @@ export class GeminiService {
 
         const isRetryable = [500, 503].includes(response.status);
         if (isRetryable && attempt < retries) {
-          console.warn(
-            `Attempt ${attempt} failed (${msg}), retrying in ${800 * attempt}ms…`,
-          );
           await new Promise((r) => setTimeout(r, 800 * attempt));
           continue;
         }
@@ -117,61 +143,50 @@ export class GeminiService {
   }
 
   private buildPrompt(): string {
-    return `Analyze this transaction image (which may be a bank SMS screenshot, bank receipt, transfer slip, or invoice) and extract the following fields. Return ONLY a valid JSON object with no markdown or extra text:
+    return `You are a financial document parser. Analyze this image carefully — it may be a bank SMS screenshot, mobile money notification, bank transfer slip, ATM receipt, POS receipt, or invoice.
+
+Extract the fields below and return ONLY a single valid JSON object. No markdown, no code fences, no explanation — just the raw JSON.
 
 {
-  "transaction_time": "ISO 8601 datetime string e.g. 2026-03-14T10:30:00Z — use T00:00:00Z if only date is visible",
-  "amount": 0.00,
-  "sender_name": "Full name of the person or entity who sent/paid",
-  "sender_account": "Sender account number or phone number, null if not visible",
-  "beneficiary_name": "Full name of the recipient, null if not visible",
-  "beneficiary_account": "Recipient account number or phone number, null if not visible",
-  "beneficiary_bank": "Name of the recipient's bank, null if not visible",
-  "transaction_type": "One of: sms, bank_transfer, receipt, invoice, other"
+  "transaction_time": "<ISO 8601 string, e.g. 2026-03-14T10:30:00Z — if only a date is visible use T00:00:00Z suffix — if no date at all use today's date>",
+  "amount": <number — the primary transaction amount as a plain positive number, no currency symbols, no commas, no minus sign — e.g. 1500.00>,
+  "sender_name": "<full name or entity that sent/paid — e.g. 'Alice Tesfaye', 'Abyssinia Bank', 'Telebirr'>",
+  "sender_account": "<sender's account number, phone number, or wallet ID — null if not shown>",
+  "beneficiary_name": "<full name or entity that received the money — null if not shown>",
+  "beneficiary_account": "<recipient's account number, phone, or wallet ID — null if not shown>",
+  "beneficiary_bank": "<name of the recipient's bank or mobile money provider — null if not shown>"
 }
 
-Rules:
-- Return ONLY the JSON object, no other text
-- amount must be a number, not a string
-- transaction_type should be 'sms' for mobile money/SMS alerts, 'bank_transfer' for wire transfers, 'receipt' for physical receipts, 'invoice' for invoices
-- If a field is truly not visible or determinable, use null
-- Do not guess sender_name or amount — only extract what is clearly visible`;
+Extraction rules:
+- amount MUST be a plain positive number (no strings, no commas, no currency signs, no minus)
+- If multiple amounts appear, use the final/total transaction amount
+- For Ethiopian banks: recognise CBE, Awash Bank, Abyssinia Bank, Dashen, BOA, Wegagen, Telebirr, M-Pesa, HelloCash, amole
+- transaction_time: read 12-hour or 24-hour clock; convert Ethiopian calendar to Gregorian if needed
+- If a field is genuinely not visible, set it to null — do NOT guess
+- amount and sender_name are required — never null`;
   }
 
   private parseResponse(response: any): TransactionData {
     try {
       const content = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-      // Strip markdown fences defensively
       const cleaned = content.replace(/```(?:json)?/g, "").trim();
-
-      // FIX: jsonMatch is a RegExpMatchArray — use  to get the matched string
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      const jsonText = jsonMatch ? jsonMatch : cleaned;
-
-      const parsed = JSON.parse(jsonText);
+      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
 
       return {
-        // FIX: .split("T") returns an array — use  for the date portion
         transaction_time:
           parsed.transaction_time ||
-          new Date().toISOString().split("T") + "T00:00:00Z",
-        amount: Number(parsed.amount) || 0,
+          new Date().toISOString().split("T")[0] + "T00:00:00Z",
+        amount: toSafeAmount(parsed.amount),
         sender_name: parsed.sender_name || "Unknown Sender",
         sender_account: parsed.sender_account ?? null,
         beneficiary_name: parsed.beneficiary_name ?? null,
         beneficiary_account: parsed.beneficiary_account ?? null,
         beneficiary_bank: parsed.beneficiary_bank ?? null,
-        transaction_type: this.validateTransactionType(parsed.transaction_type),
+        transaction_type: "screenshot",
       };
-    } catch (error) {
-      console.error("Error parsing Gemini response:", error);
+    } catch {
       throw new Error("Failed to parse transaction data from Gemini response");
     }
-  }
-
-  private validateTransactionType(type: string): string {
-    const valid = ["sms", "bank_transfer", "receipt", "invoice", "other"];
-    return valid.includes(type) ? type : "other";
   }
 }

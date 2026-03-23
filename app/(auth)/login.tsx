@@ -1,6 +1,5 @@
 import AuthInput from "@/components/auth/AuthInput";
 import GoogleButton from "@/components/auth/GoogleButton";
-import { AccountType } from "@/constants/users";
 import { useAuth } from "@/context/AuthContext";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -15,19 +14,6 @@ import {
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
-const PersonIcon: React.FC<{ color: string }> = ({ color }) => (
-  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-    <Circle cx="12" cy="8" r="4" stroke={color} strokeWidth="2" fill="none" />
-    <Path
-      d="M4 20c0-3 3.6-5.5 8-5.5s8 2.5 8 5.5"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      fill="none"
-    />
-  </Svg>
-);
-
 const BuildingIcon: React.FC<{ color: string }> = ({ color }) => (
   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
     <Rect
@@ -72,16 +58,17 @@ const TeamIcon: React.FC<{ color: string }> = ({ color }) => (
 );
 
 // ─── TAB CONFIG ───────────────────────────────────────────────────────────────
+type LoginAccountType = "business" | "team";
+
 interface TabConfig {
-  type: AccountType;
+  type: LoginAccountType;
   label: string;
   Icon: React.FC<{ color: string }>;
 }
 
 const TABS: TabConfig[] = [
-  { type: "personal", label: "Personal", Icon: PersonIcon },
-  { type: "business", label: "Business", Icon: BuildingIcon },
-  { type: "team", label: "Team", Icon: TeamIcon },
+  { type: "business", label: "Owner", Icon: BuildingIcon },
+  { type: "team", label: "Employee", Icon: TeamIcon },
 ];
 
 // ─── VALIDATION ───────────────────────────────────────────────────────────────
@@ -99,10 +86,10 @@ const validate = (phone: string, password: string): LoginErrors => {
   return errors;
 };
 
-// ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
+// ─── SCREEN ───────────────────────────────────────────────────────────────────
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [activeTab, setActiveTab] = useState<AccountType>("personal");
+  const [activeTab, setActiveTab] = useState<LoginAccountType>("business");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<LoginErrors>({});
@@ -120,7 +107,6 @@ export default function LoginScreen() {
     if (!result.success) {
       Alert.alert("Login Failed", result.error);
     } else {
-      // ✅ FIX 1: replace so user cannot press back into login
       router.replace("/(tabs)");
     }
   };
@@ -148,7 +134,6 @@ export default function LoginScreen() {
           return (
             <TouchableOpacity
               key={type}
-              // ✅ Remove shadow-sm from className — move to style prop
               className={`flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-xl ${
                 isActive ? "bg-white" : ""
               }`}
@@ -182,7 +167,7 @@ export default function LoginScreen() {
       {/* Form */}
       <AuthInput
         label="Phone Number"
-        placeholder="09211122112"
+        placeholder="0911223344"
         value={phone}
         onChangeText={setPhone}
         keyboardType="phone-pad"
@@ -234,7 +219,6 @@ export default function LoginScreen() {
       {/* Sign up link */}
       <TouchableOpacity
         className="items-center mt-6"
-        // ✅ FIX 3: router.back() instead of router.push to avoid stack buildup
         onPress={() => router.back()}
         activeOpacity={0.7}
       >
