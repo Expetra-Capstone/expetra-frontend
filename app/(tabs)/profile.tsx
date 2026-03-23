@@ -3,60 +3,44 @@ import { useAuth } from "@/context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
-import { EditUser02Icon } from "hugeicons-react-native";
+import {
+  Building01Icon,
+  Building02Icon,
+  CallIcon,
+  CheckmarkBadge01Icon,
+  Copy01Icon,
+  CustomerSupportIcon,
+  EditUser02Icon,
+  File02Icon,
+  FingerPrintIcon,
+  GlobeIcon,
+  IdentificationIcon,
+  Key01Icon,
+  LockPasswordIcon,
+  Notification01Icon,
+  Shield01Icon,
+  UserAccountIcon,
+  UserIcon,
+} from "hugeicons-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  Image,
   RefreshControl,
   ScrollView,
   Switch,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
-import Svg, { Path, Rect } from "react-native-svg";
 import * as api from "../../services/apiService";
 
-// ─── ICONS ────────────────────────────────────────────────────────────────────
-const CopyIcon: React.FC<{ color?: string }> = ({ color = "#2563EB" }) => (
-  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-    <Rect
-      x="9"
-      y="9"
-      width="13"
-      height="13"
-      rx="2"
-      stroke={color}
-      strokeWidth="2"
-      fill="none"
-    />
-    <Path
-      d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      fill="none"
-    />
-  </Svg>
-);
-
-const CheckIcon: React.FC = () => (
-  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M20 6L9 17l-5-5"
-      stroke="#16A34A"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </Svg>
-);
+// ─── THEME CONSTANTS ──────────────────────────────────────────────────────────
+const ICON_COLOR = "#1152D4";
+const ICON_BG = "#E8EFFE"; // light tint of #1152D4
 
 // ─── REUSABLE ROW ─────────────────────────────────────────────────────────────
 interface RowProps {
-  icon: string;
-  iconBg: string;
+  icon: React.ReactNode;
   title: string;
   subtitle: string;
   rightElement?: React.ReactNode;
@@ -65,7 +49,6 @@ interface RowProps {
 
 const Row: React.FC<RowProps> = ({
   icon,
-  iconBg,
   title,
   subtitle,
   rightElement,
@@ -77,9 +60,10 @@ const Row: React.FC<RowProps> = ({
     }`}
   >
     <View
-      className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${iconBg}`}
+      style={{ backgroundColor: ICON_BG }}
+      className="items-center justify-center w-10 h-10 mr-3 rounded-full"
     >
-      <Text className="text-lg">{icon}</Text>
+      {icon}
     </View>
     <View className="flex-1">
       <Text className="text-sm font-semibold text-gray-800">{title}</Text>
@@ -125,8 +109,11 @@ const InvitationIdRow: React.FC<{ invitationId: string; isLast?: boolean }> = ({
         !isLast ? "border-b border-gray-100" : ""
       }`}
     >
-      <View className="items-center justify-center w-10 h-10 mr-3 bg-yellow-100 rounded-full">
-        <Text className="text-lg">🔑</Text>
+      <View
+        style={{ backgroundColor: ICON_BG }}
+        className="items-center justify-center w-10 h-10 mr-3 rounded-full"
+      >
+        <Key01Icon size={18} color={ICON_COLOR} />
       </View>
       <View className="flex-1">
         <Text className="text-sm font-semibold text-gray-800">
@@ -141,12 +128,12 @@ const InvitationIdRow: React.FC<{ invitationId: string; isLast?: boolean }> = ({
         activeOpacity={0.7}
         className="flex-row items-center gap-1 px-3 py-1.5 border rounded-xl border-blue-200 bg-blue-50"
       >
-        {copied ? <CheckIcon /> : <CopyIcon />}
-        <Text
-          className={`text-xs font-semibold ml-1 ${
-            copied ? "text-green-600" : "text-blue-600"
-          }`}
-        >
+        {copied ? (
+          <CheckmarkBadge01Icon size={16} color="#1152D4" />
+        ) : (
+          <Copy01Icon size={16} color="#1152D4" />
+        )}
+        <Text className={`text-xs font-semibold ml-1 text-blue-600`}>
           {copied ? "Copied!" : "Copy"}
         </Text>
       </TouchableOpacity>
@@ -166,7 +153,6 @@ const Profile: React.FC = () => {
   const { user, token, role, logout } = useAuth();
   const router = useRouter();
 
-  // Live profile data fetched from /owners/me
   const [ownerProfile, setOwnerProfile] = useState<api.OwnerResponse | null>(
     null,
   );
@@ -199,7 +185,6 @@ const Profile: React.FC = () => {
   }, [fetchOwnerProfile]);
 
   // ── Derived display values ────────────────────────────────────────────────
-  // For owners use the freshly-fetched profile; fall back to context user
   const isOwner = role === "owner";
 
   const displayName = isOwner
@@ -255,7 +240,6 @@ const Profile: React.FC = () => {
         className="flex-1 bg-gray-100"
         showsVerticalScrollIndicator={false}
       >
-        {/* Avatar skeleton */}
         <View className="items-center gap-3 py-6">
           <View className="w-24 h-24 bg-gray-200 rounded-full" />
           <SkeletonBlock w="w-40" h="h-5" />
@@ -281,10 +265,15 @@ const Profile: React.FC = () => {
       {/* ── Avatar + name ────────────────────────────────────────────────── */}
       <View className="items-center py-6 bg-gray-100">
         <View className="relative">
-          <Image
-            source={{ uri: `https://i.pravatar.cc/150?u=${user?.id ?? 1}` }}
-            className="w-24 h-24 border-4 border-white rounded-full shadow"
-          />
+          {/* Avatar circle — light blue bg with User icon */}
+          <View
+            style={{ backgroundColor: "#D0DCFF" }}
+            className="items-center justify-center w-24 h-24 border-4 border-white rounded-full shadow"
+          >
+            <UserIcon size={44} color={ICON_COLOR} />
+          </View>
+
+          {/* Edit button overlay */}
           <View className="absolute bottom-0 right-0 items-center justify-center w-8 h-8 bg-blue-600 border-2 border-white rounded-full">
             <EditUser02Icon size={13} color="#ffffff" />
           </View>
@@ -303,7 +292,13 @@ const Profile: React.FC = () => {
               : "border-green-200 bg-green-50"
           }`}
         >
-          <Text className="mr-1 text-xs">{isOwner ? "🏢" : "👤"}</Text>
+          <Text className="mr-1 text-xs">
+            {isOwner ? (
+              <Building02Icon size={16} color="#1152D4" />
+            ) : (
+              <UserAccountIcon size={16} color="#10B981" />
+            )}
+          </Text>
           <Text
             className={`text-xs font-semibold tracking-wide ${
               isOwner ? "text-blue-600" : "text-green-600"
@@ -317,15 +312,13 @@ const Profile: React.FC = () => {
       {/* ── Personal Information ──────────────────────────────────────────── */}
       <Section title="Personal Information">
         <Row
-          icon="👤"
-          iconBg="bg-blue-100"
+          icon={<UserIcon size={18} color={ICON_COLOR} />}
           title="Full Name"
           subtitle={displayName}
           rightElement={<View />}
         />
         <Row
-          icon="📞"
-          iconBg="bg-green-100"
+          icon={<CallIcon size={18} color={ICON_COLOR} />}
           title="Phone Number"
           subtitle={displayPhone}
           rightElement={<View />}
@@ -336,15 +329,13 @@ const Profile: React.FC = () => {
       {/* ── Business / Company ────────────────────────────────────────────── */}
       <Section title={isOwner ? "My Business" : "My Company"}>
         <Row
-          icon="🏢"
-          iconBg="bg-purple-100"
+          icon={<Building01Icon size={18} color={ICON_COLOR} />}
           title="Company Name"
           subtitle={displayCompany}
           rightElement={<View />}
         />
         <Row
-          icon="🆔"
-          iconBg="bg-indigo-100"
+          icon={<IdentificationIcon size={18} color={ICON_COLOR} />}
           title="Business ID"
           subtitle={`#${displayBusinessId}`}
           rightElement={<View />}
@@ -353,8 +344,7 @@ const Profile: React.FC = () => {
           <InvitationIdRow invitationId={displayInvitationId} isLast />
         ) : (
           <Row
-            icon="🏷️"
-            iconBg="bg-teal-100"
+            icon={<Building01Icon size={18} color={ICON_COLOR} />}
             title="Business Name"
             subtitle={displayBusinessName}
             rightElement={<View />}
@@ -366,23 +356,10 @@ const Profile: React.FC = () => {
       {/* ── Account ───────────────────────────────────────────────────────── */}
       <Section title="Account">
         <Row
-          icon="🔒"
-          iconBg="bg-orange-100"
+          icon={<UserAccountIcon size={18} color={ICON_COLOR} />}
           title="Account Type"
           subtitle={isOwner ? "Owner Account" : "Employee Account"}
           rightElement={<View />}
-        />
-        <Row
-          icon="💳"
-          iconBg="bg-orange-100"
-          title="Manage Cards"
-          subtitle="2 Active cards"
-        />
-        <Row
-          icon="🏦"
-          iconBg="bg-teal-100"
-          title="Bank Accounts"
-          subtitle="Linked accounts"
           isLast
         />
       </Section>
@@ -390,8 +367,7 @@ const Profile: React.FC = () => {
       {/* ── Security ──────────────────────────────────────────────────────── */}
       <Section title="Security">
         <Row
-          icon="🔴"
-          iconBg="bg-red-100"
+          icon={<FingerPrintIcon size={18} color={ICON_COLOR} />}
           title="Biometric Login"
           subtitle="FaceID or TouchID"
           rightElement={
@@ -404,14 +380,12 @@ const Profile: React.FC = () => {
           }
         />
         <Row
-          icon="🔄"
-          iconBg="bg-gray-100"
+          icon={<LockPasswordIcon size={18} color={ICON_COLOR} />}
           title="Change PIN"
           subtitle="Last changed 3 months ago"
         />
         <Row
-          icon="🛡️"
-          iconBg="bg-blue-50"
+          icon={<Shield01Icon size={18} color={ICON_COLOR} />}
           title="Two-Factor Auth"
           subtitle="Highly recommended"
           rightElement={
@@ -429,14 +403,12 @@ const Profile: React.FC = () => {
       {/* ── Preferences ───────────────────────────────────────────────────── */}
       <Section title="Preferences">
         <Row
-          icon="🔔"
-          iconBg="bg-red-100"
+          icon={<Notification01Icon size={18} color={ICON_COLOR} />}
           title="Notifications"
           subtitle="Push, Email, SMS"
         />
         <Row
-          icon="🌐"
-          iconBg="bg-blue-100"
+          icon={<GlobeIcon size={18} color={ICON_COLOR} />}
           title="Language"
           subtitle="English (US)"
           isLast
@@ -445,10 +417,13 @@ const Profile: React.FC = () => {
 
       {/* ── Support & Legal ───────────────────────────────────────────────── */}
       <Section title="Support & Legal">
-        <Row icon="❓" iconBg="bg-gray-200" title="FAQ & Support" subtitle="" />
         <Row
-          icon="📄"
-          iconBg="bg-gray-200"
+          icon={<CustomerSupportIcon size={18} color={ICON_COLOR} />}
+          title="FAQ & Support"
+          subtitle=""
+        />
+        <Row
+          icon={<File02Icon size={18} color={ICON_COLOR} />}
           title="Privacy Policy & Terms"
           subtitle=""
           isLast

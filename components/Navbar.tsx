@@ -1,3 +1,4 @@
+import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import FontAwesome5 from "@expo/vector-icons/FontAwesome5";
 import { router } from "expo-router";
@@ -5,7 +6,10 @@ import React from "react";
 import { Image, Text, TouchableOpacity, View } from "react-native";
 
 const Navbar = () => {
-  const image = require("../assets/images/av.jpg"); // Use require for local images
+  const image = require("../assets/images/av.jpg");
+  const { role } = useAuth(); // Use require for local images
+
+  const isOwner = role === "owner";
   return (
     <View>
       {/* Header */}
@@ -30,12 +34,14 @@ const Navbar = () => {
         </View>
 
         <View className="flex-row items-center">
-          <TouchableOpacity
-            className="mr-4"
-            onPress={() => router.push("/(sms)")}
-          >
-            <FontAwesome5 name="sms" size={26} color="#1152D4" />
-          </TouchableOpacity>
+          {isOwner && (
+            <TouchableOpacity
+              className="mr-4"
+              onPress={() => router.push("/(sms)")}
+            >
+              <FontAwesome5 name="sms" size={26} color="#1152D4" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => router.push("/(notification)")}>
             <View className="relative">
               <Ionicons

@@ -1,27 +1,31 @@
 // app/(sms)/index.tsx
 
 import { useAuth } from "@/context/AuthContext";
-import { createTransaction } from "@/services/apiService";
 import { parseAllBankSms, ParsedSms, RawSms } from "@/services/smsParser";
+import {
+  getUploadedIds,
+  runInitialSync,
+  startSmsListener,
+  SyncProgress,
+} from "@/services/smsSync";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    PermissionsAndroid,
-    Platform,
-    RefreshControl,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  PermissionsAndroid,
+  Platform,
+  RefreshControl,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import SmsAndroid from "react-native-get-sms-android";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PermissionStatus = "idle" | "granted" | "denied";
-type LoadStatus = "idle" | "loading" | "done" | "error";
+type SyncStatus = "idle" | "syncing" | "done" | "error";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string): string {
@@ -42,7 +46,6 @@ function formatAmount(n: number): string {
   });
 }
 
-// ─── Read SMS from Android inbox ─────────────────────────────────────────────
 function readSmsInbox(): Promise<RawSms[]> {
   return new Promise((resolve, reject) => {
     const filter = JSON.stringify({ box: "inbox", maxCount: 500 });
@@ -51,7 +54,16 @@ function readSmsInbox(): Promise<RawSms[]> {
       (error: string) => reject(new Error(error)),
       (_count: number, smsList: string) => {
         try {
-          resolve(JSON.parse(smsList) as RawSms[]);
+          const smsListParsed = JSON.parse(smsList) as RawSms[];
+          smsListParsed.forEach((sms) => {
+            console.log(
+              "SMS address:",
+              sms.address,
+              "| body:",
+              sms.body.slice(0, 60),
+            );
+          });
+          resolve(smsListParsed);
         } catch {
           resolve([]);
         }
@@ -102,50 +114,74 @@ function PermissionScreen({
   );
 }
 
-function SmsCard({
-  item,
-  selected,
-  uploaded,
-  onToggle,
+function SyncBanner({
+  status,
+  progress,
+  newCount,
 }: {
-  item: ParsedSms;
-  selected: boolean;
-  uploaded: boolean;
-  onToggle: () => void;
+  status: SyncStatus;
+  progress: SyncProgress | null;
+  newCount: number;
 }) {
+  if (status === "idle") return null;
+
+  if (status === "syncing") {
+    return (
+      <View className="flex-row items-center px-5 py-3 border-b border-blue-100 bg-blue-50">
+        <ActivityIndicator size="small" color="#1152D4" />
+        <Text className="ml-3 text-sm font-medium text-blue-700">
+          {progress
+            ? `Uploading… ${progress.processed} / ${progress.total}`
+            : "Scanning messages…"}
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <View className="flex-row items-center px-5 py-3 border-b border-red-100 bg-red-50">
+        <Ionicons name="warning-outline" size={16} color="#EF4444" />
+        <Text className="ml-2 text-sm font-medium text-red-600">
+          Sync failed. Pull down to retry.
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <TouchableOpacity
-      onPress={onToggle}
-      disabled={uploaded}
-      activeOpacity={0.8}
+    <View className="flex-row items-center px-5 py-3 border-b border-green-100 bg-green-50">
+      <Ionicons name="cloud-done-outline" size={16} color="#22C55E" />
+      <Text className="ml-2 text-sm font-medium text-green-700">
+        {progress && progress.success > 0
+          ? `${progress.success} transaction${progress.success !== 1 ? "s" : ""} uploaded`
+          : newCount > 0
+            ? `${newCount} new transaction${newCount !== 1 ? "s" : ""} added`
+            : "Up to date"}
+      </Text>
+    </View>
+  );
+}
+
+function SmsCard({ item, uploaded }: { item: ParsedSms; uploaded: boolean }) {
+  return (
+    <View
       className={`flex-row items-start p-4 mb-3 rounded-2xl border-2 ${
-        uploaded
-          ? "bg-gray-50 border-gray-100"
-          : selected
-            ? "bg-blue-50 border-blue-500"
-            : "bg-white border-gray-200"
+        uploaded ? "bg-green-50 border-green-100" : "bg-white border-gray-200"
       }`}
     >
-      {/* Checkbox */}
       <View
-        className={`items-center justify-center w-6 h-6 mt-0.5 mr-3 rounded-md border-2 ${
-          uploaded
-            ? "bg-green-500 border-green-500"
-            : selected
-              ? "bg-blue-600 border-blue-600"
-              : "border-gray-300"
+        className={`items-center justify-center w-8 h-8 mt-0.5 mr-3 rounded-full ${
+          uploaded ? "bg-green-100" : "bg-gray-100"
         }`}
       >
-        {(selected || uploaded) && (
-          <Ionicons
-            name={uploaded ? "checkmark-done" : "checkmark"}
-            size={14}
-            color="#FFFFFF"
-          />
-        )}
+        <Ionicons
+          name={uploaded ? "cloud-done-outline" : "time-outline"}
+          size={16}
+          color={uploaded ? "#22C55E" : "#9CA3AF"}
+        />
       </View>
 
-      {/* Content */}
       <View className="flex-1">
         <View className="flex-row items-center justify-between mb-1">
           <Text
@@ -181,16 +217,15 @@ function SmsCard({
           {item.rawBody}
         </Text>
 
-        {uploaded && (
-          <View className="flex-row items-center mt-2">
-            <Ionicons name="cloud-done-outline" size={13} color="#22C55E" />
-            <Text className="ml-1 text-xs font-medium text-green-600">
-              Uploaded
-            </Text>
-          </View>
-        )}
+        <Text
+          className={`mt-1 text-xs font-medium ${
+            uploaded ? "text-green-600" : "text-gray-400"
+          }`}
+        >
+          {uploaded ? "Uploaded" : "Pending upload"}
+        </Text>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -199,52 +234,78 @@ export default function SmsScreen() {
   const router = useRouter();
   const { token } = useAuth();
 
-  // All hooks declared unconditionally at the top
   const [permissionStatus, setPermissionStatus] =
     useState<PermissionStatus>("idle");
-  const [loadStatus, setLoadStatus] = useState<LoadStatus>("idle");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [allParsed, setAllParsed] = useState<ParsedSms[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [uploaded, setUploaded] = useState<Set<string>>(new Set());
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
   const [selectedBank, setSelectedBank] = useState("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [newLiveCount, setNewLiveCount] = useState(0);
 
-  const loadSms = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setIsRefreshing(true);
-    else setLoadStatus("loading");
-    try {
-      const raw = await readSmsInbox();
-      const parsed = parseAllBankSms(raw);
-      setAllParsed(parsed);
-      setLoadStatus("done");
-    } catch {
-      setLoadStatus("error");
-    } finally {
-      setIsRefreshing(false);
-    }
+  const refreshUploadedIds = useCallback(async () => {
+    const ids = await getUploadedIds();
+    setUploadedIds(new Set(ids));
   }, []);
 
-  // ─── Check permission on mount — auto-load if already granted ────────────
-  // This prevents asking for permission every time the screen is visited.
-  // PermissionsAndroid.check() reads the current OS-level grant without
-  // showing any dialog, so if the user already approved it stays silent.
+  const loadAndSync = useCallback(
+    async (isRefresh = false) => {
+      if (!token) return;
+      if (isRefresh) setIsRefreshing(true);
+      else setSyncStatus("syncing");
+
+      try {
+        const raw = await readSmsInbox();
+        const parsed = parseAllBankSms(raw);
+        setAllParsed(parsed);
+        await refreshUploadedIds();
+
+        setSyncStatus("syncing");
+        const progress = await runInitialSync(token, raw, (p) =>
+          setSyncProgress({ ...p }),
+        );
+
+        await refreshUploadedIds();
+        setSyncProgress(progress);
+        setSyncStatus("done");
+      } catch {
+        setSyncStatus("error");
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [token, refreshUploadedIds],
+  );
+
+  // Check permission on mount — auto-load if already granted
   useEffect(() => {
     if (Platform.OS !== "android") return;
-
-    async function checkPermissionOnMount() {
+    async function init() {
       const alreadyGranted = await PermissionsAndroid.check(
         PermissionsAndroid.PERMISSIONS.READ_SMS,
       );
       if (alreadyGranted) {
         setPermissionStatus("granted");
-        await loadSms();
+        await loadAndSync();
       }
-      // If not granted, leave status as "idle" so the permission screen shows
     }
+    init();
+  }, [loadAndSync]);
 
-    checkPermissionOnMount();
-  }, [loadSms]);
+  // Start real-time listener once permission is granted
+  useEffect(() => {
+    if (Platform.OS !== "android" || permissionStatus !== "granted" || !token) {
+      return;
+    }
+    const cleanup = startSmsListener(token, async () => {
+      await refreshUploadedIds();
+      setNewLiveCount((c) => c + 1);
+      setSyncStatus("done");
+      setSyncProgress(null);
+    });
+    return cleanup;
+  }, [permissionStatus, token, refreshUploadedIds]);
 
   const requestAndLoad = useCallback(async () => {
     try {
@@ -263,11 +324,11 @@ export default function SmsScreen() {
         return;
       }
       setPermissionStatus("granted");
-      await loadSms();
+      await loadAndSync();
     } catch {
       setPermissionStatus("denied");
     }
-  }, [loadSms]);
+  }, [loadAndSync]);
 
   const bankOptions = useMemo(() => {
     const names = [...new Set(allParsed.map((p) => p.bankName))];
@@ -282,95 +343,6 @@ export default function SmsScreen() {
     return allParsed.filter((p) => p.bankName === selectedBank);
   }, [allParsed, selectedBank]);
 
-  const selectableCount = filtered.filter((p) => !uploaded.has(p.id)).length;
-  const selectedCount = filtered.filter(
-    (p) => selected.has(p.id) && !uploaded.has(p.id),
-  ).length;
-  const allFilteredSelected =
-    selectableCount > 0 && selectedCount === selectableCount;
-
-  function toggleItem(id: string) {
-    if (uploaded.has(id)) return;
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  function toggleAll() {
-    const selectableIds = filtered
-      .filter((p) => !uploaded.has(p.id))
-      .map((p) => p.id);
-    const allSelected = selectableIds.every((id) => selected.has(id));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (allSelected) {
-        selectableIds.forEach((id) => next.delete(id));
-      } else {
-        selectableIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  }
-
-  async function handleUpload() {
-    if (!token) {
-      Alert.alert("Not logged in", "Please log in and try again.");
-      return;
-    }
-    const toUpload = allParsed.filter(
-      (p) => selected.has(p.id) && !uploaded.has(p.id),
-    );
-    if (toUpload.length === 0) return;
-
-    Alert.alert(
-      "Upload Transactions",
-      `Upload ${toUpload.length} transaction${toUpload.length > 1 ? "s" : ""}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Upload",
-          onPress: async () => {
-            setIsUploading(true);
-            let successCount = 0;
-            const failedIds: string[] = [];
-
-            for (const item of toUpload) {
-              const result = await createTransaction(token, item.payload);
-              if (result.error) {
-                failedIds.push(item.id);
-              } else {
-                successCount++;
-                setUploaded((prev) => new Set(prev).add(item.id));
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  next.delete(item.id);
-                  return next;
-                });
-              }
-            }
-
-            setIsUploading(false);
-
-            if (failedIds.length === 0) {
-              Alert.alert(
-                "Done!",
-                `${successCount} transaction${successCount > 1 ? "s" : ""} uploaded successfully.`,
-              );
-            } else {
-              Alert.alert(
-                "Partial Success",
-                `${successCount} uploaded, ${failedIds.length} failed. Please try again.`,
-              );
-            }
-          },
-        },
-      ],
-    );
-  }
-
-  // ── Shared header ──────────────────────────────────────────────────────────
   const header = (
     <View className="flex-row items-center justify-between px-4 pt-4 pb-3 bg-white border-b border-gray-100">
       <TouchableOpacity
@@ -384,7 +356,6 @@ export default function SmsScreen() {
     </View>
   );
 
-  // ── iOS ────────────────────────────────────────────────────────────────────
   if (Platform.OS !== "android") {
     return (
       <View className="flex-1 bg-white">
@@ -403,7 +374,6 @@ export default function SmsScreen() {
     );
   }
 
-  // ── Permission not yet granted ─────────────────────────────────────────────
   if (permissionStatus === "idle" || permissionStatus === "denied") {
     return (
       <View className="flex-1 bg-white">
@@ -416,59 +386,47 @@ export default function SmsScreen() {
     );
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
-  if (loadStatus === "loading") {
+  // First-ever open: show full-screen loader until we have data
+  if (syncStatus === "syncing" && allParsed.length === 0) {
     return (
       <View className="flex-1 bg-white">
         {header}
         <View className="items-center justify-center flex-1">
           <ActivityIndicator size="large" color="#1152D4" />
-          <Text className="mt-3 text-sm text-gray-500">
-            Scanning SMS messages...
+          <Text className="mt-3 text-base font-semibold text-gray-700">
+            Importing bank messages…
           </Text>
+          {syncProgress && (
+            <Text className="mt-1 text-sm text-gray-400">
+              {syncProgress.processed} / {syncProgress.total}
+            </Text>
+          )}
         </View>
       </View>
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────────
-  if (loadStatus === "error") {
-    return (
-      <View className="flex-1 bg-white">
-        {header}
-        <View className="items-center justify-center flex-1 px-8">
-          <Ionicons name="warning-outline" size={48} color="#9CA3AF" />
-          <Text className="mt-3 text-base font-semibold text-center text-gray-700">
-            Could not read SMS messages.
-          </Text>
-          <TouchableOpacity
-            className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
-            onPress={() => loadSms()}
-          >
-            <Text className="font-semibold text-white">Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // ── Loaded ─────────────────────────────────────────────────────────────────
   return (
-    <View className="flex-1 mb-20 bg-white">
+    <View className="flex-1 bg-white">
       {header}
 
-      {/* Filter + refresh row */}
+      <SyncBanner
+        status={syncStatus}
+        progress={syncProgress}
+        newCount={newLiveCount}
+      />
+
+      {/* Filter row */}
       <View className="px-5 pt-3 pb-3 bg-white border-b border-gray-100">
         <View className="flex-row items-center justify-between mb-3">
           <Text className="text-sm font-medium text-gray-500">
-            {filtered.length} message{filtered.length !== 1 ? "s" : ""} found
+            {filtered.length} message{filtered.length !== 1 ? "s" : ""}
           </Text>
-          <TouchableOpacity onPress={() => loadSms(false)}>
+          <TouchableOpacity onPress={() => loadAndSync(false)}>
             <Ionicons name="refresh-outline" size={22} color="#1152D4" />
           </TouchableOpacity>
         </View>
 
-        {/* Bank filter pills */}
         <FlatList
           horizontal
           data={bankOptions}
@@ -496,41 +454,14 @@ export default function SmsScreen() {
         />
       </View>
 
-      {/* Select-all row */}
-      {filtered.length > 0 && (
-        <TouchableOpacity
-          onPress={toggleAll}
-          className="flex-row items-center px-5 py-3 border-b border-gray-100"
-        >
-          <View
-            className={`items-center justify-center w-5 h-5 mr-3 rounded border-2 ${
-              allFilteredSelected
-                ? "bg-blue-600 border-blue-600"
-                : "border-gray-300"
-            }`}
-          >
-            {allFilteredSelected && (
-              <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-            )}
-          </View>
-          <Text className="text-sm font-medium text-gray-600">
-            {allFilteredSelected ? "Deselect all" : "Select all"}
-          </Text>
-          <Text className="ml-auto text-sm text-gray-400">
-            {filtered.length} found · {selectedCount} selected
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* List */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={() => loadSms(true)}
+            onRefresh={() => loadAndSync(true)}
             colors={["#1152D4"]}
             tintColor="#1152D4"
           />
@@ -547,50 +478,9 @@ export default function SmsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <SmsCard
-            item={item}
-            selected={selected.has(item.id)}
-            uploaded={uploaded.has(item.id)}
-            onToggle={() => toggleItem(item.id)}
-          />
+          <SmsCard item={item} uploaded={uploadedIds.has(item.id)} />
         )}
       />
-
-      {/* Upload button */}
-      {selectedCount > 0 && (
-        <View
-          className="absolute bottom-0 left-0 right-0 px-5 bg-white border-t border-gray-100"
-          style={{ paddingBottom: 24, paddingTop: 12 }}
-        >
-          <TouchableOpacity
-            onPress={handleUpload}
-            disabled={isUploading}
-            className="flex-row items-center justify-center py-4 rounded-2xl"
-            style={{ backgroundColor: isUploading ? "#93C5FD" : "#1152D4" }}
-          >
-            {isUploading ? (
-              <>
-                <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text className="ml-2 text-base font-semibold text-white">
-                  Uploading...
-                </Text>
-              </>
-            ) : (
-              <>
-                <Ionicons
-                  name="cloud-upload-outline"
-                  size={20}
-                  color="#FFFFFF"
-                />
-                <Text className="ml-2 text-base font-semibold text-white">
-                  Upload {selectedCount} Transaction
-                  {selectedCount > 1 ? "s" : ""}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
     </View>
   );
 }
