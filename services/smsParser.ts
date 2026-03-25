@@ -7,7 +7,7 @@ export interface RawSms {
   _id: string;
   address: string;
   body: string;
-  date: string; // received timestamp in ms as string
+  date: string;
   date_sent: string;
   read: string;
   type: string;
@@ -18,10 +18,35 @@ export interface ParsedSms {
   id: string;
   address: string;
   bankName: string;
-  date: string; // ISO 8601
+  date: string;
   isCredit: boolean;
   rawBody: string;
   payload: TransactionPayload;
+}
+
+// ─── Centralized name normalizer ──────────────────────────────────────────────
+// Rules:
+//   1. Trim whitespace
+//   2. Convert to Title Case  ("JOHN DOE" → "John Doe")
+//   3. Keep only the first TWO words so that a 3-part name in one source
+//      ("Berhane Tadesse Alemu") matches a 2-part name in another ("Berhane Tadesse"),
+//      and a 1-part name ("Berhane") matches the first word of any longer name.
+//
+// Examples:
+//   "NAHOM TEMESGEN RETEBO" → "Nahom Temesgen"
+//   "Nahom Temesgen"        → "Nahom Temesgen"  (unchanged)
+//   "BEKA TSEGAYE DEBELE"   → "Beka Tsegaye"
+//   "Beka Tsegaye"          → "Beka Tsegaye"    (unchanged)
+//   "Berhane"               → "Berhane"         (single name preserved)
+//   "Yitbarek Andualem"     → "Yitbarek Andualem"
+export function normalizeName(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .split(/\s+/)
+    .slice(0, 2)
+    .join(" ");
 }
 
 // ─── Bank identifier patterns ─────────────────────────────────────────────────
@@ -44,27 +69,17 @@ function resolveBankName(address: string, body: string): string {
   return match?.displayName ?? address;
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────────────────
+// ─── Date / amount helpers ────────────────────────────────────────────────────
 
-/**
- * Parse ETB amount string to a clean number.
- * Handles "1", "280", "1,270.00", "345.00" etc.
- */
 function toAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, ""));
 }
 
-/**
- * Build an ISO 8601 string from the date/time parts found in the SMS body.
- * Falls back to the SMS received timestamp if nothing is found.
- */
 function buildIso(dateStr: string, timeStr: string): string {
   try {
-    // ISO-style date: 2026-03-23  →  keep as-is
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
       return new Date(`${dateStr}T${timeStr}Z`).toISOString();
     }
-    // Ethiopian / DD/MM/YYYY style: 24/03/2026  →  reorder to YYYY-MM-DD
     const dmyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (dmyMatch) {
       const [, d, m, y] = dmyMatch;
@@ -82,43 +97,19 @@ function fallbackTime(dateMs: string): string {
 }
 
 // ─── AWASH BANK parser ────────────────────────────────────────────────────────
-//
-// Handles two confirmed Awash message formats:
-//
-// 1. Same-bank send:
-//    "Dear Customer, You have sent ETB 1 To (01335853377300) - NAHOM TEMESGEN RETEBO
-//     by Transaction ID: 260323164711443 charge- 1.00 VAT- 0.15
-//     Date 2026-03-23 16:47:36 . Your Available Balance is 260.79."
-//
-// 2. Inter-bank transfer:
-//    "Dear Customer , You have transferred to other bank ETB  280  To 1000600192624
-//     (BEKA TSEGAYE DEBELE) In Commercial Bank of Ethiopia VAT: 0.26.
-//     Your available Balance is  ETB 262.99."
 
 function parseAwashBank(sms: RawSms): ParsedSms | null {
   const body = sms.body;
 
-  // ── Format 1: same-bank send ────────────────────────────────────────────────
-  // "You have sent ETB {amount} To ({account}) - {BENEFICIARY NAME} by Transaction ID: {txnId}
-  //  ... Date {YYYY-MM-DD HH:MM:SS}"
+  // Format 1: same-bank send
   const sentRe =
     /You have sent ETB\s*([\d,]+(?:\.\d{1,2})?)\s+To\s+\((\d+)\)\s+-\s+([A-Z][A-Z\s]+?)\s+by Transaction ID:\s*(\S+).*?Date\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/is;
 
   const sentMatch = body.match(sentRe);
   if (sentMatch) {
-    const [
-      ,
-      rawAmt,
-      beneficiaryAcct,
-      beneficiaryName,
-      txnId,
-      dateStr,
-      timeStr,
-    ] = sentMatch;
+    const [, rawAmt, beneficiaryAcct, beneficiaryName, , dateStr, timeStr] =
+      sentMatch;
     const time = buildIso(dateStr, timeStr);
-    const balMatch = body.match(
-      /Your Available Balance is\s+([\d,]+(?:\.\d{1,2})?)/i,
-    );
 
     return {
       id: sms._id,
@@ -132,7 +123,7 @@ function parseAwashBank(sms: RawSms): ParsedSms | null {
         amount: toAmount(rawAmt),
         sender_name: "Awash Bank",
         sender_account: "",
-        beneficiary_name: beneficiaryName.trim(),
+        beneficiary_name: normalizeName(beneficiaryName),
         beneficiary_account: beneficiaryAcct,
         beneficiary_bank: "Awash Bank",
         transaction_type: "sms",
@@ -140,9 +131,7 @@ function parseAwashBank(sms: RawSms): ParsedSms | null {
     };
   }
 
-  // ── Format 2: inter-bank transfer ───────────────────────────────────────────
-  // "You have transferred to other bank ETB {amount} To {account} ({BENEFICIARY NAME})
-  //  In {Beneficiary Bank} VAT: ..."
+  // Format 2: inter-bank transfer
   const transferRe =
     /You have transferred to other bank ETB\s*([\d,]+(?:\.\d{1,2})?)\s+To\s+(\d+)\s+\(([A-Z][A-Z\s]+?)\)\s+In\s+(.+?)\s+VAT/i;
 
@@ -150,8 +139,6 @@ function parseAwashBank(sms: RawSms): ParsedSms | null {
   if (transferMatch) {
     const [, rawAmt, beneficiaryAcct, beneficiaryName, beneficiaryBank] =
       transferMatch;
-
-    // No explicit date in this format — fall back to SMS received time
     const time = fallbackTime(sms.date);
 
     return {
@@ -166,7 +153,7 @@ function parseAwashBank(sms: RawSms): ParsedSms | null {
         amount: toAmount(rawAmt),
         sender_name: "Awash Bank",
         sender_account: "",
-        beneficiary_name: beneficiaryName.trim(),
+        beneficiary_name: normalizeName(beneficiaryName),
         beneficiary_account: beneficiaryAcct,
         beneficiary_bank: beneficiaryBank.trim(),
         transaction_type: "sms",
@@ -177,36 +164,19 @@ function parseAwashBank(sms: RawSms): ParsedSms | null {
   return null;
 }
 
-// ─── COMMERCIAL BANK OF ETHIOPIA (CBE) parser ─────────────────────────────────
-//
-// Handles two confirmed CBE message formats:
-//
-// 1. Credit (incoming):
-//    "Dear Leul your Account 1*****0191 has been Credited with ETB 345.00
-//     from Yitbarek Andualem, on 24/03/2026 at 13:37:25 with Ref No FT26083F74BV
-//     Your Current Balance is ETB 948.46."
-//
-// 2. Debit (outgoing transfer):
-//    "Dear Leul, You have transfered ETB 1,270.00 to Beka Tsegaye on 24/03/2026
-//     at 13:35:12 from your account 1*****0191. Your account has been debited
-//     with a S.charge of ETB 1.00 ... Your Current Balance is ETB 223.46."
+// ─── COMMERCIAL BANK OF ETHIOPIA (CBE) parser ────────────────────────────────
 
 function parseCBE(sms: RawSms): ParsedSms | null {
   const body = sms.body;
 
-  // ── Format 1: credit ────────────────────────────────────────────────────────
-  // "Account {acct} has been Credited with ETB {amount} from {Sender Name},
-  //  on {DD/MM/YYYY} at {HH:MM:SS} with Ref No {ref}"
+  // Format 1: credit
   const creditRe =
     /Account\s+(\S+)\s+has been Credited with ETB\s*([\d,]+(?:\.\d{1,2})?)\s+from\s+([A-Za-z][A-Za-z\s]+?),?\s+on\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+at\s+(\d{2}:\d{2}:\d{2})\s+with Ref No\s+(\S+)/i;
 
   const creditMatch = body.match(creditRe);
   if (creditMatch) {
-    const [, myAcct, rawAmt, senderName, dateStr, timeStr, refNo] = creditMatch;
+    const [, myAcct, rawAmt, senderName, dateStr, timeStr] = creditMatch;
     const time = buildIso(dateStr, timeStr);
-    const balMatch = body.match(
-      /Current Balance is ETB\s*([\d,]+(?:\.\d{1,2})?)/i,
-    );
 
     return {
       id: sms._id,
@@ -218,7 +188,7 @@ function parseCBE(sms: RawSms): ParsedSms | null {
       payload: {
         transaction_time: time,
         amount: toAmount(rawAmt),
-        sender_name: senderName.trim(),
+        sender_name: normalizeName(senderName),
         sender_account: "",
         beneficiary_name: "",
         beneficiary_account: myAcct,
@@ -228,10 +198,7 @@ function parseCBE(sms: RawSms): ParsedSms | null {
     };
   }
 
-  // ── Format 2: debit ─────────────────────────────────────────────────────────
-  // "You have transfered ETB {amount} to {Beneficiary Name} on {DD/MM/YYYY}
-  //  at {HH:MM:SS} from your account {acct}"
-  // Note: CBE spells "transfered" with one r — intentional
+  // Format 2: debit
   const debitRe =
     /You have transfer(?:r)?ed ETB\s*([\d,]+(?:\.\d{1,2})?)\s+to\s+([A-Za-z][A-Za-z\s]+?)\s+on\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+at\s+(\d{2}:\d{2}:\d{2})\s+from your account\s+(\S+)/i;
 
@@ -239,9 +206,6 @@ function parseCBE(sms: RawSms): ParsedSms | null {
   if (debitMatch) {
     const [, rawAmt, beneficiaryName, dateStr, timeStr, myAcct] = debitMatch;
     const time = buildIso(dateStr, timeStr);
-    const balMatch = body.match(
-      /Current Balance is ETB\s*([\d,]+(?:\.\d{1,2})?)/i,
-    );
 
     return {
       id: sms._id,
@@ -255,7 +219,7 @@ function parseCBE(sms: RawSms): ParsedSms | null {
         amount: toAmount(rawAmt),
         sender_name: "Commercial Bank of Ethiopia",
         sender_account: myAcct,
-        beneficiary_name: beneficiaryName.trim(),
+        beneficiary_name: normalizeName(beneficiaryName),
         beneficiary_account: "",
         beneficiary_bank: "",
         transaction_type: "sms",
@@ -266,14 +230,11 @@ function parseCBE(sms: RawSms): ParsedSms | null {
   return null;
 }
 
-// ─── Generic fallback parser (other banks) ────────────────────────────────────
-// Used for all banks not yet given a dedicated parser above.
-// Less precise but still extracts amount and direction.
+// ─── Generic fallback parser ──────────────────────────────────────────────────
 
 function parseGeneric(sms: RawSms): ParsedSms | null {
   const body = sms.body;
 
-  // Amount
   const amountPatterns = [
     /ETB\s*([\d,]+(?:\.\d{1,2})?)/i,
     /([\d,]+(?:\.\d{1,2})?)\s*ETB/i,
@@ -306,7 +267,6 @@ function parseGeneric(sms: RawSms): ParsedSms | null {
 
   const bankName = resolveBankName(sms.address, body);
 
-  // Generic date extraction
   let time = fallbackTime(sms.date);
   const datePatterns = [
     /(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2}:\d{2})/,
@@ -321,17 +281,16 @@ function parseGeneric(sms: RawSms): ParsedSms | null {
     }
   }
 
-  // Generic name extraction
   let senderName = "";
   let beneficiaryName = "";
 
   const fromMatch = body.match(
     /from\s+([A-Z][A-Za-z\s]+?)(?:,|\s+on|\s+at|\.|$)/,
   );
-  if (fromMatch) senderName = fromMatch[1].trim();
+  if (fromMatch) senderName = normalizeName(fromMatch[1]);
 
   const toMatch = body.match(/to\s+([A-Z][A-Za-z\s]+?)(?:\s+on|\s+at|\.|,|$)/);
-  if (toMatch) beneficiaryName = toMatch[1].trim();
+  if (toMatch) beneficiaryName = normalizeName(toMatch[1]);
 
   return {
     id: sms._id,
@@ -358,7 +317,6 @@ function parseGeneric(sms: RawSms): ParsedSms | null {
 export function parseSms(sms: RawSms): ParsedSms | null {
   const combined = (sms.address + " " + sms.body).toLowerCase();
 
-  // Try dedicated parsers first for maximum accuracy
   if (combined.includes("awash")) {
     return parseAwashBank(sms) ?? parseGeneric(sms);
   }
@@ -371,7 +329,6 @@ export function parseSms(sms: RawSms): ParsedSms | null {
     return parseCBE(sms) ?? parseGeneric(sms);
   }
 
-  // All other banks use the generic parser
   return parseGeneric(sms);
 }
 

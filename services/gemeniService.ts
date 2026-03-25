@@ -1,4 +1,5 @@
 import { GEMINI_CONFIG } from "@/constants/gemeni";
+import { normalizeName } from "@/services/smsParser";
 import { TransactionData } from "@/types/transaction.type";
 
 export class RateLimitError extends Error {
@@ -6,30 +7,6 @@ export class RateLimitError extends Error {
     super("Free tier limit reached");
     this.name = "RateLimitError";
   }
-}
-
-// ─── Map any Gemini output → backend-safe enum value ─────────────────────────
-// Note: camera.tsx overrides transaction_type to "screenshot" after extraction,
-// so this map is a safety net for any unexpected Gemini output.
-const TYPE_MAP: Record<string, string> = {
-  screenshot: "screenshot",
-  sms: "sms",
-  receipt: "receipt",
-  invoice: "invoice",
-  other: "other",
-  bank_transfer: "other",
-  transfer: "other",
-  "transfer money": "other",
-  payment: "other",
-  deposit: "other",
-  withdrawal: "other",
-  debit: "other",
-  credit: "other",
-};
-
-function toSafeType(raw: unknown): string {
-  if (!raw || typeof raw !== "string") return "other";
-  return TYPE_MAP[raw.toLowerCase().trim()] ?? "other";
 }
 
 function toSafeAmount(raw: unknown): number {
@@ -149,17 +126,18 @@ Extract the fields below and return ONLY a single valid JSON object. No markdown
 
 {
   "transaction_time": "<ISO 8601 string, e.g. 2026-03-14T10:30:00Z — if only a date is visible use T00:00:00Z suffix — if no date at all use today's date>",
-  "amount": <number — the primary transaction amount as a plain positive number, no currency symbols, no commas, no minus sign — e.g. 1500.00>,
-  "sender_name": "<full name or entity that sent/paid — e.g. 'Alice Tesfaye', 'Abyssinia Bank', 'Telebirr'>",
+  "amount": <number — the PRINCIPAL transaction amount only as a plain positive number with no currency symbols or commas — do NOT include VAT, commission, service charge, or any fee — e.g. if the transfer is 1270.00 and there is a 1.00 service charge, return 1270.00 not 1271.00>,
+  "sender_name": "<full name of the person or entity that sent/paid exactly as shown — e.g. 'Betemariam Abenet Brhane' or 'Yitbarek Andualem'>",
   "sender_account": "<sender's account number, phone number, or wallet ID — null if not shown>",
-  "beneficiary_name": "<full name or entity that received the money — null if not shown>",
+  "beneficiary_name": "<full name of the recipient exactly as shown — null if not shown>",
   "beneficiary_account": "<recipient's account number, phone, or wallet ID — null if not shown>",
   "beneficiary_bank": "<name of the recipient's bank or mobile money provider — null if not shown>"
 }
 
 Extraction rules:
-- amount MUST be a plain positive number (no strings, no commas, no currency signs, no minus)
-- If multiple amounts appear, use the final/total transaction amount
+- amount MUST be the principal transfer amount only — exclude VAT, tax, commission, service charge, disaster fund, or any additional fee
+- For names: extract the full name exactly as it appears on screen — do not shorten or truncate
+- If multiple amounts appear, use the main transfer/transaction amount, not the total including charges
 - For Ethiopian banks: recognise CBE, Awash Bank, Abyssinia Bank, Dashen, BOA, Wegagen, Telebirr, M-Pesa, HelloCash, amole
 - transaction_time: read 12-hour or 24-hour clock; convert Ethiopian calendar to Gregorian if needed
 - If a field is genuinely not visible, set it to null — do NOT guess
@@ -178,9 +156,14 @@ Extraction rules:
           parsed.transaction_time ||
           new Date().toISOString().split("T")[0] + "T00:00:00Z",
         amount: toSafeAmount(parsed.amount),
-        sender_name: parsed.sender_name || "Unknown Sender",
+        // Gemini returns the full name — normalizeName trims to 2 words + Title Case
+        // "BETEMARIAM ABENET BRHANE" → "Betemariam Abenet"
+        // "Yitbarek Andualem"        → "Yitbarek Andualem"
+        sender_name: normalizeName(parsed.sender_name || "Unknown Sender"),
         sender_account: parsed.sender_account ?? null,
-        beneficiary_name: parsed.beneficiary_name ?? null,
+        beneficiary_name: parsed.beneficiary_name
+          ? normalizeName(parsed.beneficiary_name)
+          : null,
         beneficiary_account: parsed.beneficiary_account ?? null,
         beneficiary_bank: parsed.beneficiary_bank ?? null,
         transaction_type: "screenshot",
