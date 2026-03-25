@@ -14,13 +14,12 @@ import {
   File02Icon,
   FingerPrintIcon,
   GlobeIcon,
-  IdentificationIcon,
   Key01Icon,
   LockPasswordIcon,
   Notification01Icon,
   Shield01Icon,
   UserAccountIcon,
-  UserIcon,
+  UserIcon
 } from "hugeicons-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -36,13 +35,32 @@ import * as api from "../../services/apiService";
 
 // ─── THEME CONSTANTS ──────────────────────────────────────────────────────────
 const ICON_COLOR = "#1152D4";
-const ICON_BG = "#E8EFFE"; // light tint of #1152D4
+const ICON_BG = "#E8EFFE";
+
+// ─── SKELETON LINE ────────────────────────────────────────────────────────────
+/**
+ * Renders an animated skeleton placeholder OR the real text string.
+ * Use this wherever a subtitle/value is sourced from the backend.
+ */
+const SkeletonLine: React.FC<{
+  loading: boolean;
+  value: string;
+  width?: string;
+}> = ({ loading, value, width = "w-32" }) => {
+  if (loading) {
+    return (
+      <View className={`h-3 ${width} bg-gray-200 rounded-md animate-pulse`} />
+    );
+  }
+  return <Text className="text-xs text-gray-400">{value}</Text>;
+};
 
 // ─── REUSABLE ROW ─────────────────────────────────────────────────────────────
 interface RowProps {
   icon: React.ReactNode;
   title: string;
-  subtitle: string;
+  /** Accept string OR a React node so SkeletonLine can be passed as subtitle */
+  subtitle?: React.ReactNode;
   rightElement?: React.ReactNode;
   isLast?: boolean;
 }
@@ -67,8 +85,12 @@ const Row: React.FC<RowProps> = ({
     </View>
     <View className="flex-1">
       <Text className="text-sm font-semibold text-gray-800">{title}</Text>
-      {subtitle ? (
-        <Text className="text-xs text-gray-400 mt-0.5">{subtitle}</Text>
+      {subtitle != null && subtitle !== "" ? (
+        typeof subtitle === "string" ? (
+          <Text className="text-xs text-gray-400 mt-0.5">{subtitle}</Text>
+        ) : (
+          <View className="mt-0.5">{subtitle}</View>
+        )
       ) : null}
     </View>
     {rightElement ?? <Text className="text-lg text-gray-300">›</Text>}
@@ -91,10 +113,11 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
 );
 
 // ─── COPYABLE INVITATION ID ───────────────────────────────────────────────────
-const InvitationIdRow: React.FC<{ invitationId: string; isLast?: boolean }> = ({
-  invitationId,
-  isLast = false,
-}) => {
+const InvitationIdRow: React.FC<{
+  invitationId: string;
+  loading?: boolean;
+  isLast?: boolean;
+}> = ({ invitationId, loading = false, isLast = false }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -119,13 +142,20 @@ const InvitationIdRow: React.FC<{ invitationId: string; isLast?: boolean }> = ({
         <Text className="text-sm font-semibold text-gray-800">
           Invitation ID
         </Text>
-        <Text className="text-xs text-gray-400 mt-0.5" selectable>
-          {invitationId}
-        </Text>
+        <View className="mt-0.5">
+          {loading ? (
+            <View className="w-48 h-3 bg-gray-200 rounded-md animate-pulse" />
+          ) : (
+            <Text className="text-xs text-gray-400" selectable>
+              {invitationId}
+            </Text>
+          )}
+        </View>
       </View>
       <TouchableOpacity
         onPress={handleCopy}
         activeOpacity={0.7}
+        disabled={loading}
         className="flex-row items-center gap-1 px-3 py-1.5 border rounded-xl border-blue-200 bg-blue-50"
       >
         {copied ? (
@@ -133,20 +163,13 @@ const InvitationIdRow: React.FC<{ invitationId: string; isLast?: boolean }> = ({
         ) : (
           <Copy01Icon size={16} color="#1152D4" />
         )}
-        <Text className={`text-xs font-semibold ml-1 text-blue-600`}>
+        <Text className="ml-1 text-xs font-semibold text-blue-600">
           {copied ? "Copied!" : "Copy"}
         </Text>
       </TouchableOpacity>
     </View>
   );
 };
-
-// ─── SKELETON LOADER ──────────────────────────────────────────────────────────
-const SkeletonBlock: React.FC<{ w?: string; h?: string; rounded?: string }> = ({
-  w = "w-full",
-  h = "h-4",
-  rounded = "rounded-lg",
-}) => <View className={`${w} ${h} ${rounded} bg-gray-200 animate-pulse`} />;
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
 const Profile: React.FC = () => {
@@ -187,6 +210,12 @@ const Profile: React.FC = () => {
   // ── Derived display values ────────────────────────────────────────────────
   const isOwner = role === "owner";
 
+  /**
+   * isOwner data comes from the async API call → skeleton until loaded.
+   * Non-owner data comes from the auth context → already available.
+   */
+  const apiLoading = isOwner && profileLoading;
+
   const displayName = isOwner
     ? (ownerProfile?.owner.owner_name ?? user?.name ?? "—")
     : (user?.name ?? "—");
@@ -198,10 +227,6 @@ const Profile: React.FC = () => {
   const displayCompany = isOwner
     ? (ownerProfile?.owner.company_name ?? user?.companyName ?? "—")
     : (user?.business?.name ?? "—");
-
-  const displayBusinessId = isOwner
-    ? (ownerProfile?.business.id?.toString() ?? "—")
-    : (user?.business?.id?.toString() ?? "—");
 
   const displayBusinessName = isOwner
     ? (ownerProfile?.business.name ?? user?.business?.name ?? "—")
@@ -233,27 +258,7 @@ const Profile: React.FC = () => {
     ]);
   };
 
-  // ── Loading state ─────────────────────────────────────────────────────────
-  if (profileLoading) {
-    return (
-      <ScrollView
-        className="flex-1 bg-gray-100"
-        showsVerticalScrollIndicator={false}
-      >
-        <View className="items-center gap-3 py-6">
-          <View className="w-24 h-24 bg-gray-200 rounded-full" />
-          <SkeletonBlock w="w-40" h="h-5" />
-          <SkeletonBlock w="w-28" h="h-3" />
-        </View>
-        <View className="gap-3 mx-4">
-          <SkeletonBlock h="h-16" rounded="rounded-2xl" />
-          <SkeletonBlock h="h-32" rounded="rounded-2xl" />
-          <SkeletonBlock h="h-24" rounded="rounded-2xl" />
-        </View>
-      </ScrollView>
-    );
-  }
-
+  // ── No full-page loading gate — render the page immediately ──────────────
   return (
     <ScrollView
       className="flex-1 bg-gray-100"
@@ -265,24 +270,36 @@ const Profile: React.FC = () => {
       {/* ── Avatar + name ────────────────────────────────────────────────── */}
       <View className="items-center py-6 bg-gray-100">
         <View className="relative">
-          {/* Avatar circle — light blue bg with User icon */}
           <View
             style={{ backgroundColor: "#D0DCFF" }}
             className="items-center justify-center w-24 h-24 border-4 border-white rounded-full shadow"
           >
             <UserIcon size={44} color={ICON_COLOR} />
           </View>
-
-          {/* Edit button overlay */}
           <View className="absolute bottom-0 right-0 items-center justify-center w-8 h-8 bg-blue-600 border-2 border-white rounded-full">
             <EditUser02Icon size={13} color="#ffffff" />
           </View>
         </View>
 
-        <Text className="mt-3 text-xl font-bold text-gray-900">
-          {displayName}
-        </Text>
-        <Text className="text-sm text-gray-400">{displayPhone}</Text>
+        {/* Name — skeleton while API loads */}
+        <View className="mt-3">
+          {apiLoading ? (
+            <View className="w-40 h-6 bg-gray-200 rounded-lg animate-pulse" />
+          ) : (
+            <Text className="text-xl font-bold text-gray-900">
+              {displayName}
+            </Text>
+          )}
+        </View>
+
+        {/* Phone — skeleton while API loads */}
+        <View className="mt-1">
+          {apiLoading ? (
+            <View className="h-4 bg-gray-200 rounded-md w-28 animate-pulse" />
+          ) : (
+            <Text className="text-sm text-gray-400">{displayPhone}</Text>
+          )}
+        </View>
 
         {/* Role badge */}
         <View
@@ -314,13 +331,25 @@ const Profile: React.FC = () => {
         <Row
           icon={<UserIcon size={18} color={ICON_COLOR} />}
           title="Full Name"
-          subtitle={displayName}
+          subtitle={
+            <SkeletonLine
+              loading={apiLoading}
+              value={displayName}
+              width="w-36"
+            />
+          }
           rightElement={<View />}
         />
         <Row
           icon={<CallIcon size={18} color={ICON_COLOR} />}
           title="Phone Number"
-          subtitle={displayPhone}
+          subtitle={
+            <SkeletonLine
+              loading={apiLoading}
+              value={displayPhone}
+              width="w-28"
+            />
+          }
           rightElement={<View />}
           isLast
         />
@@ -331,17 +360,21 @@ const Profile: React.FC = () => {
         <Row
           icon={<Building01Icon size={18} color={ICON_COLOR} />}
           title="Company Name"
-          subtitle={displayCompany}
-          rightElement={<View />}
-        />
-        <Row
-          icon={<IdentificationIcon size={18} color={ICON_COLOR} />}
-          title="Business ID"
-          subtitle={`#${displayBusinessId}`}
+          subtitle={
+            <SkeletonLine
+              loading={apiLoading}
+              value={displayCompany}
+              width="w-40"
+            />
+          }
           rightElement={<View />}
         />
         {isOwner ? (
-          <InvitationIdRow invitationId={displayInvitationId} isLast />
+          <InvitationIdRow
+            invitationId={displayInvitationId}
+            loading={apiLoading}
+            isLast
+          />
         ) : (
           <Row
             icon={<Building01Icon size={18} color={ICON_COLOR} />}
