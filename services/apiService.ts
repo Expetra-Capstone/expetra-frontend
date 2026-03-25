@@ -135,6 +135,10 @@ export interface Transaction {
 
 export type TransactionPayload = Omit<Transaction, "id">;
 
+export interface ValidatedBalanceResponse {
+  total_balance: number;
+}
+
 // ─── OWNER ENDPOINTS ──────────────────────────────────────────────────────────
 
 export const createOwner = (data: {
@@ -218,11 +222,18 @@ export const getTransactions = (token: string): ApiResult<Transaction[]> =>
     headers: { Authorization: `Bearer ${token}` },
   });
 
-// ✅ NEW — validated transactions only
 export const getValidatedTransactions = (
   token: string,
 ): ApiResult<Transaction[]> =>
   request("/transactions/validated", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+/** GET /transactions/validated_balance → { total_balance: number } */
+export const getValidatedBalance = (
+  token: string,
+): ApiResult<ValidatedBalanceResponse> =>
+  request("/transactions/validated_balance", {
     headers: { Authorization: `Bearer ${token}` },
   });
 

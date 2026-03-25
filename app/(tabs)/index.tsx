@@ -1,6 +1,10 @@
 import TransactionList from "@/components/TransactionList";
 import { useAuth } from "@/context/AuthContext";
-import { getTransactions, Transaction } from "@/services/apiService";
+import {
+  getTransactions,
+  getValidatedBalance,
+  Transaction,
+} from "@/services/apiService";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -51,25 +55,36 @@ export default function HomePage() {
   const { token, user } = useAuth();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [totalBalance, setTotalBalance] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDataVisible, setIsDataVisible] = useState(false);
   const [selectedBank, setSelectedBank] = useState("all");
-  const [selectedDateRange, setSelectedDateRange] = useState("all"); // ← was "7"
+  const [selectedDateRange, setSelectedDateRange] = useState("all");
   const [isDateDropdownVisible, setIsDateDropdownVisible] = useState(false);
 
-  const fetchTransactions = useCallback(
+  const fetchData = useCallback(
     async (isRefresh = false) => {
       if (!token) return;
       if (isRefresh) setIsRefreshing(true);
+
       try {
-        const result = await getTransactions(token);
-        if (!result.error) {
-          const sorted = [...result.data].sort(
+        // Fetch transactions and validated balance in parallel
+        const [txResult, balResult] = await Promise.all([
+          getTransactions(token),
+          getValidatedBalance(token),
+        ]);
+
+        if (!txResult.error) {
+          const sorted = [...txResult.data].sort(
             (a, b) =>
               new Date(b.transaction_time).getTime() -
               new Date(a.transaction_time).getTime(),
           );
           setTransactions(sorted);
+        }
+
+        if (!balResult.error) {
+          setTotalBalance(balResult.data.total_balance);
         }
       } finally {
         setIsRefreshing(false);
@@ -78,9 +93,13 @@ export default function HomePage() {
     [token],
   );
 
+  console.log("HomePage render", {
+    totalBalance,
+  });
+
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    fetchData();
+  }, [fetchData]);
 
   const bankCategories = useMemo(
     () => buildBankCategories(transactions),
@@ -105,7 +124,15 @@ export default function HomePage() {
     return result.slice(0, 5);
   }, [transactions, selectedBank, selectedDateRange]);
 
-  const displayBalance = isDataVisible ? "24,892.00" : "********";
+  // Display the validated balance from the backend, masked if hidden
+  const displayBalance = isDataVisible
+    ? totalBalance !== null
+      ? totalBalance.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : "—"
+    : "••••••••";
 
   const rawPhone = user?.phone ?? "";
   const displayPhone = isDataVisible
@@ -142,7 +169,7 @@ export default function HomePage() {
       refreshControl={
         <RefreshControl
           refreshing={isRefreshing}
-          onRefresh={() => fetchTransactions(true)}
+          onRefresh={() => fetchData(true)}
           colors={["#1152D4"]}
           tintColor="#1152D4"
         />
