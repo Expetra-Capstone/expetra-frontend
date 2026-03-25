@@ -1,6 +1,7 @@
 import IncomeExpensesChart from "@/components/analytics/IncomeExpensesChart";
 import SpendingTrendsChart from "@/components/analytics/SpendingTrendsChart";
-import React, { useState } from "react";
+import { BankIcon } from "hugeicons-react-native";
+import React, { JSX, useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ interface StatItem {
 }
 
 interface CategoryItem {
-  emoji: string;
+  emoji: JSX.Element;
   bgColor: string;
   name: string;
   sub: string;
@@ -49,30 +50,30 @@ const STATS: StatItem[] = [
 
 const CATEGORIES: CategoryItem[] = [
   {
-    emoji: "🍴",
-    bgColor: "#FFF7ED",
-    name: "Food & Dining",
+    emoji: <BankIcon size={18} color="#2563EB" />,
+    bgColor: "#EEF6FF",
+    name: "CBE",
     sub: "12 Transactions",
     amount: "$840.50",
-    barColor: "#F97316",
+    barColor: "#3B82F6",
     pct: 75,
   },
   {
-    emoji: "🚗",
+    emoji: <BankIcon size={18} color="#2563EB" />,
     bgColor: "#EFF6FF",
-    name: "Transport",
+    name: "Awash",
     sub: "24 Transactions",
     amount: "$320.15",
     barColor: "#3B82F6",
     pct: 28,
   },
   {
-    emoji: "🛍️",
+    emoji: <BankIcon size={18} color="#2563EB" />,
     bgColor: "#F5F3FF",
-    name: "Shopping",
+    name: "Telebirr",
     sub: "8 Transactions",
     amount: "$1,120.00",
-    barColor: "#8B5CF6",
+    barColor: "#3B82F6",
     pct: 100,
   },
 ];
