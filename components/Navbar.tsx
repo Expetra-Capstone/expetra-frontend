@@ -2,12 +2,12 @@ import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import FontAwesome5 from "@expo/vector-icons/FontAwesome5";
 import { router } from "expo-router";
+import { UserIcon } from "hugeicons-react-native";
 import React from "react";
-import { Image, Text, TouchableOpacity, View } from "react-native";
+import { Text, TouchableOpacity, View } from "react-native";
 
 const Navbar = () => {
-  const image = require("../assets/images/av.jpg");
-  const { role } = useAuth(); // Use require for local images
+  const { role, user } = useAuth(); // Use require for local images
 
   const isOwner = role === "owner";
   return (
@@ -15,20 +15,14 @@ const Navbar = () => {
       {/* Header */}
       <View className="flex-row items-center justify-between px-5 pt-3 pb-4 bg-white">
         <View className="flex-row items-center">
-          {image ? (
-            <Image source={image} className="w-10 h-10 rounded-full" />
-          ) : (
-            <View className="items-center justify-center w-10 h-10 bg-yellow-600 rounded-full">
-              <Ionicons name="person" size={24} color="#F7F7F9" />
-            </View>
-          )}
+          <View className="items-center justify-center w-10 h-10 rounded-full bg-accent/20">
+            <UserIcon size={20} color="#1152D4" />
+          </View>
 
           <View className="pt-1 ml-3">
-            <Text className="text-xs font-medium text-gray-800">
-              Welcome back
-            </Text>
+            <Text className="text-xs font-medium text-gray-800">Welcome</Text>
             <Text className="text-xl font-semibold text-gray-900">
-              Betemariam
+              {user?.name || "User"}
             </Text>
           </View>
         </View>
