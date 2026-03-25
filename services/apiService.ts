@@ -48,7 +48,6 @@ async function request<T>(
 
     const rawText = await res.text();
 
-    // Empty body on success (e.g. 201 Created with no JSON body)
     if (!rawText.trim()) {
       if (res.ok) return { data: {} as T };
       return { error: `Request failed with status ${res.status}.` };
@@ -216,6 +215,14 @@ export const getEmployees = (token: string): ApiResult<EmployeeResponse[]> =>
 
 export const getTransactions = (token: string): ApiResult<Transaction[]> =>
   request("/transactions", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+// ✅ NEW — validated transactions only
+export const getValidatedTransactions = (
+  token: string,
+): ApiResult<Transaction[]> =>
+  request("/transactions/validated", {
     headers: { Authorization: `Bearer ${token}` },
   });
 

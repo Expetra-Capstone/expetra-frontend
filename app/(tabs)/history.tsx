@@ -1,4 +1,5 @@
 import TransactionList from "@/components/TransactionList";
+import ValidatedHistoryScreen from "@/components/ValidateHistory";
 import { useAuth } from "@/context/AuthContext";
 import { getTransactions, Transaction } from "@/services/apiService";
 import { RawSms } from "@/services/smsParser";
@@ -116,10 +117,16 @@ function buildTypeOptions(
   ];
 }
 
+// ─── Tab type ─────────────────────────────────────────────────────────────────
+type HistoryTab = "all" | "validated";
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const History = () => {
   const { token } = useAuth();
+
+  // ── Tab state ─────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<HistoryTab>("all");
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -132,9 +139,7 @@ const History = () => {
   const [isTypeDropdownVisible, setIsTypeDropdownVisible] = useState(false);
 
   // ── Force-extract state ────────────────────────────────────────────────────
-  // forceDone: read from AsyncStorage on mount — button is hidden on iOS or
-  // when SMS permission hasn't been granted yet.
-  const [forceDone, setForceDone] = useState(true); // start true to avoid flash
+  const [forceDone, setForceDone] = useState(true);
   const [isForcing, setIsForcing] = useState(false);
   const [forceProgress, setForceProgress] = useState<SyncProgress | null>(null);
   const [showSmsButton, setShowSmsButton] = useState(false);
@@ -149,7 +154,7 @@ const History = () => {
         PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS),
       ]);
       setForceDone(done);
-      setShowSmsButton(granted); // only show button if SMS permission exists
+      setShowSmsButton(granted);
     }
 
     checkForceAndPermission();
@@ -212,7 +217,6 @@ const History = () => {
 
               setForceDone(true);
 
-              // Reload the transaction list to show newly uploaded entries
               const data = await syncAndFetch(token);
               setTransactions(data);
 
@@ -269,255 +273,313 @@ const History = () => {
   const currentTypeLabel =
     typeOptions.find((t) => t.id === selectedType)?.name ?? "All Types";
 
-  // ─── Loading ───────────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <View className="items-center justify-center flex-1 bg-white">
-        <ActivityIndicator size="large" color="#1152D4" />
-        <Text className="mt-3 text-sm text-gray-500">
-          Loading transactions…
-        </Text>
-      </View>
-    );
-  }
-
-  // ─── Error ─────────────────────────────────────────────────────────────────
-  if (fetchError) {
-    return (
-      <View className="items-center justify-center flex-1 px-8 bg-white">
-        <Ionicons name="cloud-offline-outline" size={48} color="#9CA3AF" />
-        <Text className="mt-3 text-base font-semibold text-center text-gray-700">
-          {fetchError}
-        </Text>
-        <TouchableOpacity
-          className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
-          onPress={() => load()}
-        >
-          <Text className="font-semibold text-white">Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <View className="flex-1 bg-white">
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[0]}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => load(true)}
-            colors={["#1152D4"]}
-            tintColor="#1152D4"
-          />
-        }
-      >
-        {/* ── Sticky Filter Header ── */}
-        <View className="pt-4 pb-3 bg-white">
-          <View className="px-5 mb-4">
-            <View className="flex-row">
-              <TouchableOpacity
-                onPress={() => setIsBankDropdownVisible(true)}
-                className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
-              >
-                <View className="flex-row items-center flex-1">
-                  <Ionicons name="business-outline" size={18} color="#666" />
-                  <Text
-                    className="flex-1 ml-2 text-sm font-medium text-gray-700"
-                    numberOfLines={1}
-                  >
-                    {currentBankLabel}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-down" size={18} color="#666" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setIsTypeDropdownVisible(true)}
-                className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
-              >
-                <View className="flex-row items-center flex-1">
-                  <Ionicons
-                    name="swap-horizontal-outline"
-                    size={18}
-                    color="#666"
-                  />
-                  <Text
-                    className="flex-1 ml-2 text-sm font-medium text-gray-700"
-                    numberOfLines={1}
-                  >
-                    {currentTypeLabel}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-down" size={18} color="#666" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* ── Bank Dropdown Modal ── */}
-        <Modal
-          visible={isBankDropdownVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsBankDropdownVisible(false)}
-        >
+      {/* ── Tab Switcher — always visible ── */}
+      <View className="px-5 pt-4 pb-3 bg-white border-b border-gray-100">
+        <View className="flex-row p-1 bg-gray-100 rounded-2xl">
           <TouchableOpacity
-            className="items-center justify-center flex-1 bg-black/50"
-            activeOpacity={1}
-            onPress={() => setIsBankDropdownVisible(false)}
+            onPress={() => setActiveTab("all")}
+            className={`flex-1 items-center py-2.5 rounded-xl ${
+              activeTab === "all" ? "bg-[#1152D4]" : ""
+            }`}
           >
-            <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
-              <View className="p-4 border-b border-gray-200">
-                <Text className="text-lg font-semibold text-center">
-                  Filter by Bank
-                </Text>
-              </View>
-              <ScrollView className="max-h-96">
-                {bankOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option.id}
-                    onPress={() => {
-                      setSelectedBank(option.id);
-                      setIsBankDropdownVisible(false);
-                    }}
-                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedBank === option.id ? "bg-blue-50" : ""
-                    }`}
-                  >
-                    <Text
-                      className={`text-base ${
-                        selectedBank === option.id
-                          ? "text-blue-600 font-semibold"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {option.name}
-                    </Text>
-                    {selectedBank === option.id && (
-                      <Ionicons name="checkmark" size={20} color="#1152D4" />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </TouchableOpacity>
-        </Modal>
-
-        {/* ── Type Dropdown Modal ── */}
-        <Modal
-          visible={isTypeDropdownVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsTypeDropdownVisible(false)}
-        >
-          <TouchableOpacity
-            className="items-center justify-center flex-1 bg-black/50"
-            activeOpacity={1}
-            onPress={() => setIsTypeDropdownVisible(false)}
-          >
-            <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
-              <View className="p-4 border-b border-gray-200">
-                <Text className="text-lg font-semibold text-center">
-                  Filter by Type
-                </Text>
-              </View>
-              <ScrollView className="max-h-96">
-                {typeOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option.id}
-                    onPress={() => {
-                      setSelectedType(option.id);
-                      setIsTypeDropdownVisible(false);
-                    }}
-                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedType === option.id ? "bg-blue-50" : ""
-                    }`}
-                  >
-                    <Text
-                      className={`text-base ${
-                        selectedType === option.id
-                          ? "text-blue-600 font-semibold"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {option.name}
-                    </Text>
-                    {selectedType === option.id && (
-                      <Ionicons name="checkmark" size={20} color="#1152D4" />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </TouchableOpacity>
-        </Modal>
-
-        {/* ── Force Extract Button ── */}
-        {showSmsButton && (
-          <View className="px-5 pb-4">
-            <TouchableOpacity
-              onPress={handleForceExtract}
-              disabled={forceDone || isForcing}
-              className={`flex-row items-center justify-center py-3 rounded-2xl border-2 ${
-                forceDone
-                  ? "bg-gray-100 border-gray-200"
-                  : isForcing
-                    ? "bg-blue-50 border-blue-200"
-                    : "bg-white border-blue-600"
+            <Text
+              className={`text-sm font-semibold ${
+                activeTab === "all" ? "text-white" : "text-gray-500"
               }`}
             >
-              {isForcing ? (
-                <>
-                  <ActivityIndicator size="small" color="#1152D4" />
-                  <Text className="ml-2 text-sm font-semibold text-blue-600">
-                    {forceProgress
-                      ? `Extracting… ${forceProgress.processed} / ${forceProgress.total}`
-                      : "Reading inbox…"}
-                  </Text>
-                </>
-              ) : forceDone ? (
-                <>
-                  <Ionicons name="checkmark-circle" size={18} color="#9CA3AF" />
-                  <Text className="ml-2 text-sm font-semibold text-gray-400">
-                    All SMS Extracted
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons
-                    name="cloud-upload-outline"
-                    size={18}
-                    color="#1152D4"
-                  />
-                  <Text className="ml-2 text-sm font-semibold text-blue-600">
-                    Extract All SMS
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── Transaction List ── */}
-        <View className="px-5 pb-24">
-          <View className="flex-row items-center justify-between mb-4">
-            <Text className="text-lg font-bold text-black">
               All Transactions
             </Text>
-            <Text className="text-sm text-gray-500">
-              {filteredTransactions.length} transaction(s)
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setActiveTab("validated")}
+            className={`flex-1 items-center py-2.5 rounded-xl ${
+              activeTab === "validated" ? "bg-[#1152D4]" : ""
+            }`}
+          >
+            <View className="flex-row items-center gap-1.5">
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={14}
+                color={activeTab === "validated" ? "#ffffff" : "#6b7280"}
+              />
+              <Text
+                className={`text-sm font-semibold ${
+                  activeTab === "validated" ? "text-white" : "text-gray-500"
+                }`}
+              >
+                Validated
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* ── Tab Content ── */}
+      {activeTab === "all" ? (
+        // ── All Transactions tab ──────────────────────────────────────────
+        isLoading ? (
+          <View className="items-center justify-center flex-1 bg-white">
+            <ActivityIndicator size="large" color="#1152D4" />
+            <Text className="mt-3 text-sm text-gray-500">
+              Loading transactions…
             </Text>
           </View>
+        ) : fetchError ? (
+          <View className="items-center justify-center flex-1 px-8 bg-white">
+            <Ionicons name="cloud-offline-outline" size={48} color="#9CA3AF" />
+            <Text className="mt-3 text-base font-semibold text-center text-gray-700">
+              {fetchError}
+            </Text>
+            <TouchableOpacity
+              className="px-6 py-3 mt-5 bg-blue-600 rounded-xl"
+              onPress={() => load()}
+            >
+              <Text className="font-semibold text-white">Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView
+            className="flex-1"
+            showsVerticalScrollIndicator={false}
+            stickyHeaderIndices={[0]}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={() => load(true)}
+                colors={["#1152D4"]}
+                tintColor="#1152D4"
+              />
+            }
+          >
+            {/* ── Sticky Filter Header ── */}
+            <View className="pt-4 pb-3 bg-white">
+              <View className="px-5 mb-4">
+                <View className="flex-row">
+                  <TouchableOpacity
+                    onPress={() => setIsBankDropdownVisible(true)}
+                    className="flex-row items-center justify-between flex-1 px-4 py-3 mr-2 bg-white border-2 border-gray-200 rounded-xl"
+                  >
+                    <View className="flex-row items-center flex-1">
+                      <Ionicons
+                        name="business-outline"
+                        size={18}
+                        color="#666"
+                      />
+                      <Text
+                        className="flex-1 ml-2 text-sm font-medium text-gray-700"
+                        numberOfLines={1}
+                      >
+                        {currentBankLabel}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={18} color="#666" />
+                  </TouchableOpacity>
 
-          <TransactionList
-            transactions={filteredTransactions}
-            emptyMessage="No transactions found for the selected filters"
-          />
-        </View>
-      </ScrollView>
+                  <TouchableOpacity
+                    onPress={() => setIsTypeDropdownVisible(true)}
+                    className="flex-row items-center justify-between flex-1 px-4 py-3 ml-2 bg-white border-2 border-gray-200 rounded-xl"
+                  >
+                    <View className="flex-row items-center flex-1">
+                      <Ionicons
+                        name="swap-horizontal-outline"
+                        size={18}
+                        color="#666"
+                      />
+                      <Text
+                        className="flex-1 ml-2 text-sm font-medium text-gray-700"
+                        numberOfLines={1}
+                      >
+                        {currentTypeLabel}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={18} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* ── Bank Dropdown Modal ── */}
+            <Modal
+              visible={isBankDropdownVisible}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setIsBankDropdownVisible(false)}
+            >
+              <TouchableOpacity
+                className="items-center justify-center flex-1 bg-black/50"
+                activeOpacity={1}
+                onPress={() => setIsBankDropdownVisible(false)}
+              >
+                <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
+                  <View className="p-4 border-b border-gray-200">
+                    <Text className="text-lg font-semibold text-center">
+                      Filter by Bank
+                    </Text>
+                  </View>
+                  <ScrollView className="max-h-96">
+                    {bankOptions.map((option) => (
+                      <TouchableOpacity
+                        key={option.id}
+                        onPress={() => {
+                          setSelectedBank(option.id);
+                          setIsBankDropdownVisible(false);
+                        }}
+                        className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
+                          selectedBank === option.id ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <Text
+                          className={`text-base ${
+                            selectedBank === option.id
+                              ? "text-blue-600 font-semibold"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          {option.name}
+                        </Text>
+                        {selectedBank === option.id && (
+                          <Ionicons
+                            name="checkmark"
+                            size={20}
+                            color="#1152D4"
+                          />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* ── Type Dropdown Modal ── */}
+            <Modal
+              visible={isTypeDropdownVisible}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setIsTypeDropdownVisible(false)}
+            >
+              <TouchableOpacity
+                className="items-center justify-center flex-1 bg-black/50"
+                activeOpacity={1}
+                onPress={() => setIsTypeDropdownVisible(false)}
+              >
+                <View className="w-4/5 overflow-hidden bg-white rounded-2xl">
+                  <View className="p-4 border-b border-gray-200">
+                    <Text className="text-lg font-semibold text-center">
+                      Filter by Type
+                    </Text>
+                  </View>
+                  <ScrollView className="max-h-96">
+                    {typeOptions.map((option) => (
+                      <TouchableOpacity
+                        key={option.id}
+                        onPress={() => {
+                          setSelectedType(option.id);
+                          setIsTypeDropdownVisible(false);
+                        }}
+                        className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
+                          selectedType === option.id ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <Text
+                          className={`text-base ${
+                            selectedType === option.id
+                              ? "text-blue-600 font-semibold"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          {option.name}
+                        </Text>
+                        {selectedType === option.id && (
+                          <Ionicons
+                            name="checkmark"
+                            size={20}
+                            color="#1152D4"
+                          />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* ── Force Extract Button ── */}
+            {showSmsButton && (
+              <View className="px-5 pb-4">
+                <TouchableOpacity
+                  onPress={handleForceExtract}
+                  disabled={forceDone || isForcing}
+                  className={`flex-row items-center justify-center py-3 rounded-2xl border-2 ${
+                    forceDone
+                      ? "bg-gray-100 border-gray-200"
+                      : isForcing
+                        ? "bg-blue-50 border-blue-200"
+                        : "bg-white border-blue-600"
+                  }`}
+                >
+                  {isForcing ? (
+                    <>
+                      <ActivityIndicator size="small" color="#1152D4" />
+                      <Text className="ml-2 text-sm font-semibold text-blue-600">
+                        {forceProgress
+                          ? `Extracting… ${forceProgress.processed} / ${forceProgress.total}`
+                          : "Reading inbox…"}
+                      </Text>
+                    </>
+                  ) : forceDone ? (
+                    <>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color="#9CA3AF"
+                      />
+                      <Text className="ml-2 text-sm font-semibold text-gray-400">
+                        All SMS Extracted
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="cloud-upload-outline"
+                        size={18}
+                        color="#1152D4"
+                      />
+                      <Text className="ml-2 text-sm font-semibold text-blue-600">
+                        Extract All SMS
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ── Transaction List ── */}
+            <View className="px-5 pb-24">
+              <View className="flex-row items-center justify-between mb-4">
+                <Text className="text-lg font-bold text-black">
+                  All Transactions
+                </Text>
+                <Text className="text-sm text-gray-500">
+                  {filteredTransactions.length} transaction(s)
+                </Text>
+              </View>
+
+              <TransactionList
+                transactions={filteredTransactions}
+                emptyMessage="No transactions found for the selected filters"
+              />
+            </View>
+          </ScrollView>
+        )
+      ) : (
+        // ── Validated tab — mounts fresh each time tab is activated ──────────
+        <ValidatedHistoryScreen key="validated-tab" />
+      )}
     </View>
   );
 };
