@@ -25,7 +25,6 @@ function formatDate(iso: string): string {
   }
 }
 
-// Must stay in sync with formatTypeLabel in history.tsx
 function formatType(type: string | undefined | null): string {
   if (!type) return "Other";
   if (type === "sms") return "SMS";
@@ -55,14 +54,27 @@ export default function TransactionList({
   const router = useRouter();
 
   const handlePress = (item: Transaction) => {
+    if (item.id == null) return;
     router.push({
       pathname: "/transactions/[id]",
       params: { id: String(item.id) },
     });
   };
 
-  const renderTransaction = ({ item }: { item: Transaction }) => {
+  const renderTransaction = ({
+    item,
+    index,
+  }: {
+    item: Transaction;
+    index: number;
+  }) => {
     const badge = typeBadge(item.transaction_type);
+
+    // Guard: amount may be undefined or arrive as a string from some endpoints
+    const amount =
+      typeof item.amount === "number"
+        ? item.amount
+        : parseFloat(String(item.amount ?? "0")) || 0;
 
     return (
       <TouchableOpacity
@@ -81,7 +93,7 @@ export default function TransactionList({
               className="text-base font-semibold text-black"
               numberOfLines={1}
             >
-              {item.sender_name}
+              {item.sender_name ?? "—"}
             </Text>
 
             <Text className="text-sm text-gray-500" numberOfLines={1}>
@@ -91,7 +103,7 @@ export default function TransactionList({
             </Text>
 
             <Text className="mt-0.5 text-xs text-gray-400">
-              {formatDate(item.transaction_time)}
+              {item.transaction_time ? formatDate(item.transaction_time) : "—"}
             </Text>
           </View>
         </View>
@@ -99,7 +111,7 @@ export default function TransactionList({
         {/* Right — amount + type badge */}
         <View className="items-end">
           <Text className="mb-1 text-xl font-bold text-accent">
-            {item.amount.toLocaleString(undefined, {
+            {amount.toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
@@ -120,7 +132,10 @@ export default function TransactionList({
     <FlatList
       data={transactions}
       renderItem={renderTransaction}
-      keyExtractor={(item) => String(item.id)}
+      // Use index as fallback when id is undefined to prevent the duplicate-key crash
+      keyExtractor={(item, index) =>
+        item.id != null ? String(item.id) : `row-${index}`
+      }
       scrollEnabled={scrollEnabled}
       ListEmptyComponent={
         <View className="items-center justify-center py-8">

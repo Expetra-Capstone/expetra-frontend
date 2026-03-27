@@ -1,19 +1,27 @@
-import TransactionList from "@/components/TransactionList";
 import { useAuth } from "@/context/AuthContext";
 import { getValidatedTransactions, Transaction } from "@/services/apiService";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { Invoice02Icon } from "hugeicons-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-// ─── Helpers (mirrored from history.tsx) ─────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+// A validation group as returned by the backend
+interface ValidationGroup {
+  transactions: Transaction[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTypeLabel(type: string): string {
   if (type === "sms") return "SMS";
@@ -21,16 +29,63 @@ function formatTypeLabel(type: string): string {
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function toAmount(raw: unknown): number {
+  if (typeof raw === "number") return isNaN(raw) ? 0 : raw;
+  return parseFloat(String(raw ?? "0")) || 0;
+}
+
+// ─── Parse response into groups ───────────────────────────────────────────────
+function parseGroups(raw: unknown): ValidationGroup[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        Array.isArray((item as Record<string, unknown>).transactions),
+    )
+    .map((item) => {
+      const g = item as Record<string, unknown>;
+      const txs = (g.transactions as Record<string, unknown>[]).map((row) => ({
+        id: row.id as number,
+        transaction_time:
+          (row.transaction_time as string) ?? new Date().toISOString(),
+        amount: toAmount(row.amount),
+        sender_name: (row.sender_name as string) || "—",
+        sender_account: (row.sender_account as string) || undefined,
+        beneficiary_name: (row.beneficiary_name as string) || undefined,
+        beneficiary_account: (row.beneficiary_account as string) || undefined,
+        beneficiary_bank: (row.beneficiary_bank as string) || undefined,
+        transaction_type: (row.transaction_type as string) || "other",
+      })) as Transaction[];
+      return { transactions: txs };
+    });
+}
+
+// ─── Filter builders ──────────────────────────────────────────────────────────
+
 function buildBankOptions(
-  transactions: Transaction[],
+  groups: ValidationGroup[],
 ): { id: string; name: string }[] {
   const bankSet = new Set<string>();
-  transactions.forEach((t) => {
-    if (t.beneficiary_bank?.trim()) bankSet.add(t.beneficiary_bank.trim());
-    if (t.transaction_type === "sms" && t.sender_name?.trim()) {
-      bankSet.add(t.sender_name.trim());
-    }
-  });
+  groups.forEach(({ transactions }) =>
+    transactions.forEach((t) => {
+      if (t.beneficiary_bank?.trim()) bankSet.add(t.beneficiary_bank.trim());
+      if (t.transaction_type === "sms" && t.sender_name?.trim())
+        bankSet.add(t.sender_name.trim());
+    }),
+  );
   return [
     { id: "all", name: "All Banks" },
     ...[...bankSet].sort().map((b) => ({ id: b.toLowerCase(), name: b })),
@@ -38,39 +93,107 @@ function buildBankOptions(
 }
 
 function buildTypeOptions(
-  transactions: Transaction[],
+  groups: ValidationGroup[],
 ): { id: string; name: string }[] {
-  const types = [
-    ...new Set(
-      transactions
-        .map((t) => t.transaction_type)
-        .filter((t): t is string => !!t),
-    ),
-  ];
+  const typeSet = new Set<string>();
+  groups.forEach(({ transactions }) =>
+    transactions.forEach((t) => {
+      if (t.transaction_type) typeSet.add(t.transaction_type);
+    }),
+  );
   return [
     { id: "all", name: "All Types" },
-    ...types.map((t) => ({ id: t.toLowerCase(), name: formatTypeLabel(t) })),
+    ...[...typeSet].map((t) => ({
+      id: t.toLowerCase(),
+      name: formatTypeLabel(t),
+    })),
   ];
 }
 
-// ─── Fetch helper ─────────────────────────────────────────────────────────────
+// ─── Group card ───────────────────────────────────────────────────────────────
+// Shows one representative row per validation group.
+// Displays the shared amount + sender, and a count badge showing how many
+// transactions are in the group. Tapping opens the detail with all of them.
 
-async function fetchValidated(token: string): Promise<Transaction[]> {
-  const result = await getValidatedTransactions(token);
-  if (result.error) throw new Error(result.error);
-  return [...result.data].sort(
-    (a, b) =>
-      new Date(b.transaction_time).getTime() -
-      new Date(a.transaction_time).getTime(),
+function GroupCard({
+  group,
+  onPress,
+}: {
+  group: ValidationGroup;
+  onPress: () => void;
+}) {
+  const rep = group.transactions[0]; // representative transaction
+  const count = group.transactions.length;
+  const types = [...new Set(group.transactions.map((t) => t.transaction_type))];
+
+  return (
+    <TouchableOpacity
+      className="flex-row items-center justify-between p-4 mb-3 bg-white border-2 border-gray-200 rounded-2xl"
+      activeOpacity={0.85}
+      onPress={onPress}
+    >
+      {/* Left */}
+      <View className="flex-row items-center flex-1 mr-3">
+        <View className="items-center justify-center w-12 h-12 mr-3 rounded-full bg-accent/20">
+          <Invoice02Icon size={20} color="#1152D4" />
+        </View>
+
+        <View className="flex-1">
+          <View className="flex-row items-center gap-2">
+            <Text
+              className="text-base font-semibold text-black"
+              numberOfLines={1}
+            >
+              {rep.sender_name}
+            </Text>
+            {/* Group size badge
+            <View className="px-1.5 py-0.5 bg-blue-100 rounded-full">
+              <Text className="text-[10px] font-bold text-blue-600">
+                {count} match{count !== 1 ? "es" : ""}
+              </Text>
+            </View> */}
+          </View>
+
+          <Text className="text-sm text-gray-500" numberOfLines={1}>
+            {rep.beneficiary_name
+              ? `To: ${rep.beneficiary_name}`
+              : (rep.beneficiary_bank ?? "—")}
+          </Text>
+
+          <Text className="mt-0.5 text-xs text-gray-400">
+            {formatDate(rep.transaction_time)}
+          </Text>
+        </View>
+      </View>
+
+      {/* Right */}
+      <View className="items-end">
+        <Text className="mb-1 text-xl font-bold text-accent">
+          {rep.amount.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </Text>
+        {/* Type pills for all unique types in the group */}
+        <View className="flex-row gap-1">
+          <View className="px-2 py-0.5 rounded-full bg-green-100">
+            <Text className="text-[9px] font-semibold uppercase text-green-700">
+              Validated
+            </Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 
 const ValidatedHistoryScreen = () => {
   const { token } = useAuth();
+  const router = useRouter();
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [groups, setGroups] = useState<ValidationGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -84,7 +207,7 @@ const ValidatedHistoryScreen = () => {
   const load = useCallback(
     async (isRefresh = false) => {
       if (!token) {
-        setFetchError("You must be logged in to view transactions.");
+        setFetchError("You must be logged in.");
         setIsLoading(false);
         return;
       }
@@ -93,8 +216,16 @@ const ValidatedHistoryScreen = () => {
       setFetchError(null);
 
       try {
-        const data = await fetchValidated(token);
-        setTransactions(data);
+        const result = await getValidatedTransactions(token);
+        if (result.error) throw new Error(result.error);
+        const parsed = parseGroups(result.data);
+        // Sort groups by the most recent transaction in each group
+        parsed.sort(
+          (a, b) =>
+            new Date(b.transactions[0].transaction_time).getTime() -
+            new Date(a.transactions[0].transaction_time).getTime(),
+        );
+        setGroups(parsed);
       } catch (e) {
         setFetchError(
           e instanceof Error ? e.message : "Network error. Please try again.",
@@ -107,45 +238,48 @@ const ValidatedHistoryScreen = () => {
     [token],
   );
 
-  // Load on mount (component mounts when tab becomes active)
   useEffect(() => {
     load();
   }, [load]);
 
   // ─── Filters ──────────────────────────────────────────────────────────────
-  const bankOptions = useMemo(
-    () => buildBankOptions(transactions),
-    [transactions],
-  );
-  const typeOptions = useMemo(
-    () => buildTypeOptions(transactions),
-    [transactions],
-  );
+  const bankOptions = useMemo(() => buildBankOptions(groups), [groups]);
+  const typeOptions = useMemo(() => buildTypeOptions(groups), [groups]);
 
-  const filteredTransactions = useMemo(() => {
-    let filtered = transactions;
-
-    if (selectedBank !== "all") {
-      filtered = filtered.filter((t) => {
-        const bank = (t.beneficiary_bank ?? "").toLowerCase();
-        const sender = (t.sender_name ?? "").toLowerCase();
-        return bank === selectedBank || sender === selectedBank;
-      });
-    }
-
-    if (selectedType !== "all") {
-      filtered = filtered.filter(
-        (t) => (t.transaction_type ?? "").toLowerCase() === selectedType,
-      );
-    }
-
-    return filtered;
-  }, [transactions, selectedBank, selectedType]);
+  const filteredGroups = useMemo(() => {
+    return groups.filter(({ transactions }) => {
+      const bankMatch =
+        selectedBank === "all" ||
+        transactions.some(
+          (t) =>
+            (t.beneficiary_bank ?? "").toLowerCase() === selectedBank ||
+            (t.sender_name ?? "").toLowerCase() === selectedBank,
+        );
+      const typeMatch =
+        selectedType === "all" ||
+        transactions.some(
+          (t) => (t.transaction_type ?? "").toLowerCase() === selectedType,
+        );
+      return bankMatch && typeMatch;
+    });
+  }, [groups, selectedBank, selectedType]);
 
   const currentBankLabel =
     bankOptions.find((b) => b.id === selectedBank)?.name ?? "All Banks";
   const currentTypeLabel =
     typeOptions.find((t) => t.id === selectedType)?.name ?? "All Types";
+
+  // Navigate to detail, passing all transaction IDs in the group
+  function openGroup(group: ValidationGroup) {
+    const ids = group.transactions.map((t) => t.id).join(",");
+    router.push({
+      pathname: "/transactions/[id]",
+      params: {
+        id: String(group.transactions[0].id),
+        groupIds: ids,
+      },
+    });
+  }
 
   // ─── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -159,7 +293,6 @@ const ValidatedHistoryScreen = () => {
     );
   }
 
-  // ─── Error ─────────────────────────────────────────────────────────────────
   if (fetchError) {
     return (
       <View className="items-center justify-center flex-1 px-8 bg-white">
@@ -235,7 +368,7 @@ const ValidatedHistoryScreen = () => {
           </View>
         </View>
 
-        {/* ── Bank Dropdown Modal ── */}
+        {/* ── Bank Dropdown ── */}
         <Modal
           visible={isBankDropdownVisible}
           transparent
@@ -261,16 +394,10 @@ const ValidatedHistoryScreen = () => {
                       setSelectedBank(option.id);
                       setIsBankDropdownVisible(false);
                     }}
-                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedBank === option.id ? "bg-blue-50" : ""
-                    }`}
+                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${selectedBank === option.id ? "bg-blue-50" : ""}`}
                   >
                     <Text
-                      className={`text-base ${
-                        selectedBank === option.id
-                          ? "text-blue-600 font-semibold"
-                          : "text-gray-700"
-                      }`}
+                      className={`text-base ${selectedBank === option.id ? "text-blue-600 font-semibold" : "text-gray-700"}`}
                     >
                       {option.name}
                     </Text>
@@ -284,7 +411,7 @@ const ValidatedHistoryScreen = () => {
           </TouchableOpacity>
         </Modal>
 
-        {/* ── Type Dropdown Modal ── */}
+        {/* ── Type Dropdown ── */}
         <Modal
           visible={isTypeDropdownVisible}
           transparent
@@ -310,16 +437,10 @@ const ValidatedHistoryScreen = () => {
                       setSelectedType(option.id);
                       setIsTypeDropdownVisible(false);
                     }}
-                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${
-                      selectedType === option.id ? "bg-blue-50" : ""
-                    }`}
+                    className={`p-4 border-b border-gray-100 flex-row items-center justify-between ${selectedType === option.id ? "bg-blue-50" : ""}`}
                   >
                     <Text
-                      className={`text-base ${
-                        selectedType === option.id
-                          ? "text-blue-600 font-semibold"
-                          : "text-gray-700"
-                      }`}
+                      className={`text-base ${selectedType === option.id ? "text-blue-600 font-semibold" : "text-gray-700"}`}
                     >
                       {option.name}
                     </Text>
@@ -333,35 +454,32 @@ const ValidatedHistoryScreen = () => {
           </TouchableOpacity>
         </Modal>
 
-        {/* ── Validated Badge Banner ── */}
-        <View className="px-5 pb-3">
-          <View className="flex-row items-center px-4 py-3 border border-green-200 rounded-2xl bg-green-50">
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={18}
-              color="#16a34a"
-            />
-            <Text className="ml-2 text-sm font-medium text-green-700">
-              Showing only verified & validated transactions
-            </Text>
-          </View>
-        </View>
-
-        {/* ── Transaction List ── */}
+        {/* ── Group List ── */}
         <View className="px-5 pb-24">
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-lg font-bold text-black">
               Validated Transactions
             </Text>
             <Text className="text-sm text-gray-500">
-              {filteredTransactions.length} transaction(s)
+              {filteredGroups.length} group(s)
             </Text>
           </View>
 
-          <TransactionList
-            transactions={filteredTransactions}
-            emptyMessage="No validated transactions found for the selected filters"
-          />
+          {filteredGroups.length === 0 ? (
+            <View className="items-center justify-center py-8">
+              <Text className="text-base text-gray-500">
+                No validated transactions found
+              </Text>
+            </View>
+          ) : (
+            filteredGroups.map((group, index) => (
+              <GroupCard
+                key={`group-${group.transactions[0]?.id ?? index}`}
+                group={group}
+                onPress={() => openGroup(group)}
+              />
+            ))
+          )}
         </View>
       </ScrollView>
     </View>
