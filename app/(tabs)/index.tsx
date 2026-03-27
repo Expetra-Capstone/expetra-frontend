@@ -93,10 +93,6 @@ export default function HomePage() {
     [token],
   );
 
-  console.log("HomePage render", {
-    totalBalance,
-  });
-
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -132,7 +128,7 @@ export default function HomePage() {
           maximumFractionDigits: 2,
         })
       : "—"
-    : "••••••••";
+    : "********";
 
   const rawPhone = user?.phone ?? "";
   const displayPhone = isDataVisible
