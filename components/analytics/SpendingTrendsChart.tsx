@@ -1,17 +1,30 @@
 import React from "react";
 import { Text, useWindowDimensions, View } from "react-native";
 import Svg, {
-    Circle,
-    Defs,
-    LinearGradient,
-    Path,
-    Stop,
+  Circle,
+  Defs,
+  LinearGradient,
+  Path,
+  Stop,
 } from "react-native-svg";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface Point {
   x: number;
   y: number;
+}
+
+interface SpendingTrendsChartProps {
+  /**
+   * 9 values in the range 0–100.
+   * Produced by `computeAnalytics().spendTrend`.
+   */
+  trendPoints: number[];
+  /**
+   * 5 x-axis labels scoped to the active tab.
+   * Produced by `buildTrendLabels(tab)`.
+   */
+  labels: string[];
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -34,31 +47,33 @@ const catmullRomToBezier = (points: Point[]): string => {
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const CHART_H = 130;
-const H_PADDING = 64; // screen margins (16) + card padding (16) × 2
-const LABELS = ["1 May", "8 May", "15 May", "22 May", "29 May"] as const;
+const H_PADDING = 64;
+const V_PAD = 8; // top headroom so peaks don't clip
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
-const SpendingTrendsChart: React.FC = () => {
+const SpendingTrendsChart: React.FC<SpendingTrendsChartProps> = ({
+  trendPoints,
+  labels,
+}) => {
   const { width } = useWindowDimensions();
   const W = width - H_PADDING;
 
-  const points: Point[] = [
-    { x: 0, y: CHART_H - 12 },
-    { x: W * 0.1, y: CHART_H - 42 },
-    { x: W * 0.22, y: CHART_H - 80 }, // first peak  ~8 May
-    { x: W * 0.36, y: CHART_H - 55 },
-    { x: W * 0.5, y: CHART_H - 22 }, // valley      ~15 May
-    { x: W * 0.63, y: CHART_H - 38 },
-    { x: W * 0.75, y: CHART_H - 68 }, // second peak ~22 May
-    { x: W * 0.88, y: CHART_H - 88 },
-    { x: W, y: CHART_H - 105 }, // rising      ~29 May
-  ];
+  // Map each 0–100 value to an SVG (x, y) coordinate
+  const points: Point[] = trendPoints.map((val, i) => ({
+    x: (i / (trendPoints.length - 1)) * W,
+    y: CHART_H - (val / 100) * (CHART_H - V_PAD),
+  }));
+
+  // Highlight the two highest data points with dots
+  const dotIndices = [...trendPoints]
+    .map((v, i) => ({ v, i }))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 2)
+    .map((d) => d.i)
+    .sort((a, b) => a - b);
 
   const linePath = catmullRomToBezier(points);
   const areaPath = `${linePath} L ${W} ${CHART_H} L 0 ${CHART_H} Z`;
-
-  const dot1 = points[2]; // ~8 May
-  const dot2 = points[6]; // ~22 May
 
   return (
     <View className="mt-4">
@@ -83,28 +98,23 @@ const SpendingTrendsChart: React.FC = () => {
           strokeLinejoin="round"
         />
 
-        {/* Peak dots */}
-        <Circle
-          cx={dot1.x}
-          cy={dot1.y}
-          r="5.5"
-          fill="white"
-          stroke="#2563EB"
-          strokeWidth="2.5"
-        />
-        <Circle
-          cx={dot2.x}
-          cy={dot2.y}
-          r="5.5"
-          fill="white"
-          stroke="#2563EB"
-          strokeWidth="2.5"
-        />
+        {/* Peak highlight dots */}
+        {dotIndices.map((idx) => (
+          <Circle
+            key={idx}
+            cx={points[idx].x}
+            cy={points[idx].y}
+            r="5.5"
+            fill="white"
+            stroke="#2563EB"
+            strokeWidth="2.5"
+          />
+        ))}
       </Svg>
 
-      {/* X-axis labels */}
+      {/* X-axis labels (5 evenly distributed under 9 SVG points) */}
       <View className="flex-row justify-between mt-2">
-        {LABELS.map((label) => (
+        {labels.map((label) => (
           <Text key={label} className="text-[11px] text-gray-400">
             {label}
           </Text>
